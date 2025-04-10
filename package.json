@@ -9,8 +9,9 @@
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
     "mysql": "^2.18.1",
-    "mysql2": "^3.13.0",
-    "razorpay": "^2.9.6"
+    "mysql2": "^3.14.0",
+    "razorpay": "^2.9.6",
+    "sequelize": "^6.37.7"
   },
   "scripts": {
     "start": "nodemon app.js"

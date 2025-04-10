@@ -1,7 +1,7 @@
 // routes/airport.js
 const express = require('express');
 const router = express.Router();
-const airportController = require('./../controller/airportController'); 
+const airportController = require('./../controller/airportController');
 
 // GET /airport - Retrieve all airports
 router.get('/', airportController.getAirports);
