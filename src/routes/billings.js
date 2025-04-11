@@ -1,19 +1,11 @@
-// routes/users.js
 const express = require('express');
 const router = express.Router();
+const billingController = require('./../controller/billingController');
 
-// Instead of ./../users/users.js, require ../db
-const db = require('./../../db'); 
-
-// GET /users - Retrieve all users as JSON
-router.get('/', (req, res) => {
-  db.query('SELECT * FROM billing_details', (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Database query failed' });
-    }
-    res.json(results);
-  });
-});
+router.get('/', billingController.getBillings);
+router.get('/:id', billingController.getBillingById);
+router.post('/', billingController.createBilling);
+router.put('/:id', billingController.updateBilling);
+router.delete('/:id', billingController.deleteBilling);
 
 module.exports = router;

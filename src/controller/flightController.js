@@ -1,6 +1,5 @@
-const Flight = require('./../model/flight');
+const getModels = () => require('../model'); // Lazy-load models
 
-// Utility functions
 function getNextWeekday(weekday) {
   const weekdayMap = {
     Sunday: 0, Monday: 1, Tuesday: 2,
@@ -18,20 +17,20 @@ function getNextWeekday(weekday) {
 }
 
 function combineDateAndTime(dateObj, timeString) {
-  const [hours, minutes, seconds] = timeString.split(':').map(Number);
+  const [hours, minutes, seconds] = (timeString || '00:00:00').split(':').map(Number);
   const combined = new Date(dateObj);
   combined.setHours(hours, minutes, seconds || 0, 0);
   return combined;
 }
 
-// Update flight statuses (unchanged)
 async function updateFlightStatuses() {
+  const models = getModels();
   try {
     const now = new Date();
-    const flights = await Flight.findAll();
+    const flights = await models.Flight.findAll();
     for (const flight of flights) {
       const datePart = getNextWeekday(flight.departure_day);
-      const flightDateTime = combineDateAndTime(datePart, flight.departure_time || "00:00:00");
+      const flightDateTime = combineDateAndTime(datePart, flight.departure_time);
       if (flightDateTime < now && flight.status === 0) {
         await flight.update({ status: 1 });
       }
@@ -43,13 +42,14 @@ async function updateFlightStatuses() {
 
 setInterval(updateFlightStatuses, 10 * 60 * 1000);
 
-// Get all flights (filtered for active flights for user-facing requests)
 const getFlights = async (req, res) => {
+  const models = getModels();
+  console.log('FlightController models:', models.Flight ? 'Defined' : 'Undefined');
   try {
-    await updateFlightStatuses(); // Update statuses before fetching
-    const isUserRequest = req.query.user === 'true'; // Example: Add ?user=true for user requests
-    const whereClause = isUserRequest ? { status: 1 } : {}; // Only active flights for users
-    const flights = await Flight.findAll({ where: whereClause });
+    await updateFlightStatuses();
+    const isUserRequest = req.query.user === 'true';
+    const whereClause = isUserRequest ? { status: 1 } : {};
+    const flights = await models.Flight.findAll({ where: whereClause });
     res.json(flights);
   } catch (err) {
     console.error('Error fetching flights:', err);
@@ -57,12 +57,11 @@ const getFlights = async (req, res) => {
   }
 };
 
-// Add a new flight
 const addFlight = async (req, res) => {
+  const models = getModels();
   const { flight_number, departure_day, start_airport_id, end_airport_id, airport_stop_ids, seat_limit, status } = req.body;
-
   try {
-    const newFlight = await Flight.create({
+    const newFlight = await models.Flight.create({
       flight_number,
       departure_day,
       start_airport_id,
@@ -78,16 +77,13 @@ const addFlight = async (req, res) => {
   }
 };
 
-// Update a flight
 const updateFlight = async (req, res) => {
+  const models = getModels();
   const { id } = req.params;
   const { flight_number, departure_day, start_airport_id, end_airport_id, airport_stop_ids, seat_limit, status } = req.body;
-
   try {
-    const flight = await Flight.findByPk(id);
-    if (!flight) {
-      return res.status(404).json({ error: 'Flight not found' });
-    }
+    const flight = await models.Flight.findByPk(id);
+    if (!flight) return res.status(404).json({ error: 'Flight not found' });
     await flight.update({
       flight_number,
       departure_day,
@@ -104,15 +100,12 @@ const updateFlight = async (req, res) => {
   }
 };
 
-// Delete a flight
 const deleteFlight = async (req, res) => {
+  const models = getModels();
   const { id } = req.params;
-
   try {
-    const flight = await Flight.findByPk(id);
-    if (!flight) {
-      return res.status(404).json({ error: 'Flight not found' });
-    }
+    const flight = await models.Flight.findByPk(id);
+    if (!flight) return res.status(404).json({ error: 'Flight not found' });
     await flight.destroy();
     res.json({ message: 'Flight deleted successfully' });
   } catch (err) {
@@ -121,10 +114,10 @@ const deleteFlight = async (req, res) => {
   }
 };
 
-// Bulk activate all flights
 const activateAllFlights = async (req, res) => {
+  const models = getModels();
   try {
-    await Flight.update({ status: 1 }, { where: {} }); // Update all to active
+    await models.Flight.update({ status: 1 }, { where: {} });
     res.json({ message: 'All flights activated successfully' });
   } catch (err) {
     console.error('Error activating all flights:', err);
@@ -132,15 +125,12 @@ const activateAllFlights = async (req, res) => {
   }
 };
 
-// Bulk edit all flights (e.g., update seat_limit)
 const editAllFlights = async (req, res) => {
-  const { seat_limit } = req.body; // Example: Only seat_limit is editable in bulk
-  if (!seat_limit || isNaN(seat_limit)) {
-    return res.status(400).json({ error: 'Invalid seat limit value' });
-  }
-
+  const models = getModels();
+  const { seat_limit } = req.body;
+  if (!seat_limit || isNaN(seat_limit)) return res.status(400).json({ error: 'Invalid seat limit value' });
   try {
-    await Flight.update({ seat_limit: parseInt(seat_limit) }, { where: {} });
+    await models.Flight.update({ seat_limit: parseInt(seat_limit) }, { where: {} });
     res.json({ message: 'All flights updated successfully' });
   } catch (err) {
     console.error('Error editing all flights:', err);
@@ -148,10 +138,10 @@ const editAllFlights = async (req, res) => {
   }
 };
 
-// Bulk delete all flights
 const deleteAllFlights = async (req, res) => {
+  const models = getModels();
   try {
-    await Flight.destroy({ where: {} }); // Delete all flights
+    await models.Flight.destroy({ where: {} });
     res.json({ message: 'All flights deleted successfully' });
   } catch (err) {
     console.error('Error deleting all flights:', err);

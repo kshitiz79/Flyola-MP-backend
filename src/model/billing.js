@@ -1,38 +1,49 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../../db2'); // Updated from ../../db2
 
-const User = sequelize.define(
-  'User',
+const Billing = sequelize.define(
+  'Billing',
   {
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
     },
-    name: {
+    billing_name: {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    email: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      unique: true,
-    },
-    password: {
+    billing_email: {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    number: {
+    billing_number: {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    role: {
-      type: DataTypes.INTEGER,
-      defaultValue: 3, // 1 for admin, 3 for user
+    billing_address: {
+      type: DataTypes.STRING,
+      allowNull: false,
     },
-    remember_token: {
+    billing_country: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    billing_state: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    billing_pin_code: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    GST_Number: {
       type: DataTypes.STRING,
       allowNull: true,
+    },
+    user_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
     },
     created_at: {
       type: DataTypes.DATE,
@@ -44,16 +55,16 @@ const User = sequelize.define(
     },
   },
   {
-    tableName: 'users',
-    timestamps: false,
+    tableName: 'billing_details', // Updated from 'billings'
+    timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
   }
 );
 
 // Associations (called by index.js)
-User.associate = (models) => {
-  User.hasMany(models.Booking, { foreignKey: 'bookedUserId' });
-  User.hasMany(models.Payment, { foreignKey: 'user_id' });
-  User.hasMany(models.Billing, { foreignKey: 'user_id' });
+Billing.associate = (models) => {
+  Billing.belongsTo(models.User, { foreignKey: 'user_id' });
 };
 
-module.exports = User;
+module.exports = Billing;

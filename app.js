@@ -20,11 +20,7 @@ app.use(cookieParser());
 
 // Mount your routes
 app.use('/', require('./src/routes/index'));
-app.use('/bookings', require('./src/routes/bookings'));
 
-
-
-app.use('/booked-seat', require('./src/routes/bookedSeates'));
 
 
 
@@ -32,10 +28,17 @@ app.use('/reviews', require('./src/routes/reviews'));
 app.use('/billings', require('./src/routes/billings'));
 
 
-app.use('/api/booking', require('./src/routes/booking'));
 
 
 
+app.use('/payments', require('./src/routes/payments'));
+
+// No changes needed, but ensure this line exists:
+app.use('/bookings', require('./src/routes/bookings'));
+
+
+
+app.use('/booked-seat', require('./src/routes/bookedSeates'));
 
 
 

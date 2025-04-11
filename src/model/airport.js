@@ -1,9 +1,6 @@
-// models/airport.js
 const { DataTypes } = require('sequelize');
-const sequelize = require('./../../db2'); // Database connection
+const sequelize = require('../../db2'); // Updated to ../../db
 
-
-// Define the Airport model
 const Airport = sequelize.define('Airport', {
   id: {
     type: DataTypes.BIGINT.UNSIGNED,
@@ -23,16 +20,16 @@ const Airport = sequelize.define('Airport', {
     allowNull: true,
   },
   created_at: {
-    type: DataTypes.DATE,  // Use DataTypes.DATE for timestamp columns
-    defaultValue: DataTypes.NOW,  // Default to the current time
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW,
   },
   updated_at: {
-    type: DataTypes.DATE,  // Use DataTypes.DATE for timestamp columns
-    defaultValue: DataTypes.NOW,  // Default to the current time
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW,
   },
 }, {
   tableName: 'airports',
-  timestamps: false,  // Disable automatic timestamp management by Sequelize
+  timestamps: false,
 });
 
 module.exports = Airport;

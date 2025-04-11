@@ -1,28 +1,15 @@
-// routes/bookings.js
 const express = require('express');
 const router = express.Router();
-const pool = require('../../db'); // Ensure you import the correct pool
+const bookingController = require('../controller/bookingController');
 
-// GET /bookings - Retrieve all bookings, optionally filtered by status
-router.get('/', async (req, res) => {
-  const status = req.query.status || 'All Booking'; // Default to 'All Booking' if no status is provided
+// Existing booking routes (if any)
+router.get('/', bookingController.getBookings); // Example
+router.get('/:id', bookingController.getBookingById); // Example
+router.post('/', bookingController.createBooking); // Example
+router.put('/:id', bookingController.updateBooking); // Example
+router.delete('/:id', bookingController.deleteBooking); // Example
 
-  try {
-    // Adjust the query based on the status parameter
-    let query = 'SELECT * FROM bookings';
-    let queryParams = [];
-
-    if (status !== 'All Booking') {
-      query += ' WHERE bookingStatus = ?';
-      queryParams.push(status);
-    }
-
-    const [rows] = await pool.query(query, queryParams); // Use the promise-based query
-    res.json(rows); // Send the result as JSON
-  } catch (err) {
-    console.error('Error during query:', err);
-    res.status(500).json({ error: 'Database query failed' });
-  }
-});
+// Add complete-booking route
+router.post('/complete-booking', bookingController.completeBooking);
 
 module.exports = router;

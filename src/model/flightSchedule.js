@@ -1,6 +1,7 @@
-// models/flightSchedule.js
 const { DataTypes } = require('sequelize');
-const sequelize = require('./../../db2'); // Database connection
+const sequelize = require('../../db2'); // Updated from ../../db2
+
+
 
 const FlightSchedule = sequelize.define('FlightSchedule', {
   flight_id: {
@@ -37,7 +38,7 @@ const FlightSchedule = sequelize.define('FlightSchedule', {
   },
   status: {
     type: DataTypes.INTEGER,
-    allowNull: false, 
+    allowNull: false,
   },
   created_at: {
     type: DataTypes.DATE,
@@ -49,7 +50,10 @@ const FlightSchedule = sequelize.define('FlightSchedule', {
   },
 }, {
   tableName: 'flight_schedules',
-  timestamps: false, // Disable automatic timestamp fields management by Sequelize
+  timestamps: false,
 });
+
+// Add debugging
+console.log('FlightSchedule model defined:', FlightSchedule !== undefined);
 
 module.exports = FlightSchedule;

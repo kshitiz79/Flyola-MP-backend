@@ -1,22 +1,17 @@
-// src/routes/users.js
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const pool = require('./../../db'); // Adjust path as needed
+const getModels = () => require('../model'); // Lazy-load models
 require('dotenv').config();
 
 const router = express.Router();
 
-
-
-
-
 router.post('/login', async (req, res) => {
+  const models = getModels();
   const { email, password } = req.body;
   try {
-    const [users] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (users.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
-    const user = users[0];
+    const user = await models.User.findOne({ where: { email } });
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
@@ -40,36 +35,35 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Logout route
 router.post('/logout', (req, res) => {
   res.clearCookie('token');
   res.json({ message: 'Logged out successfully' });
 });
 
-// Registration route for regular users
 router.post('/register', async (req, res) => {
+  const models = getModels();
   const { name, email, password, number } = req.body;
-  
   if (!name || !email || !password || !number) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
-  
   try {
-    const [results] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (results.length > 0) {
-      return res.status(400).json({ error: 'Email already registered' });
-    }
-    
+    const existingUser = await models.User.findOne({ where: { email } });
+    if (existingUser) return res.status(400).json({ error: 'Email already registered' });
+
     const hashedPassword = await bcrypt.hash(password, 12);
-    const query = 'INSERT INTO users (name, email, password, number) VALUES (?, ?, ?, ?)';
-    const [result] = await pool.query(query, [name, email, hashedPassword, number]);
-    
+    const newUser = await models.User.create({
+      name,
+      email,
+      password: hashedPassword,
+      number,
+      role: 3, // Default user role
+    });
+
     const token = jwt.sign(
-      { id: result.insertId, email, role: 3, remember_token: null },
+      { id: newUser.id, email, role: 3, remember_token: null },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
-    
     res.status(201).json({ message: 'User registered successfully', token });
   } catch (err) {
     console.error('Registration error:', err);
@@ -77,32 +71,32 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Admin registration route
 router.post('/register-admin', async (req, res) => {
+  const models = getModels();
   const { name, email, password, number } = req.body;
-  
   if (!name || !email || !password || !number) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
-  
   try {
-    const [results] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
-    if (results.length > 0) {
-      return res.status(400).json({ error: 'Email already registered' });
-    }
-    
+    const existingUser = await models.User.findOne({ where: { email } });
+    if (existingUser) return res.status(400).json({ error: 'Email already registered' });
+
     const hashedPassword = await bcrypt.hash(password, 12);
-    const adminToken = 'admin_default_token'; // Ensure admin tokens are non-null
-    
-    const query = 'INSERT INTO users (name, email, password, number, role, remember_token) VALUES (?, ?, ?, ?, ?, ?)';
-    const [result] = await pool.query(query, [name, email, hashedPassword, number, 1, adminToken]);
-    
+    const adminToken = 'admin_default_token';
+    const newUser = await models.User.create({
+      name,
+      email,
+      password: hashedPassword,
+      number,
+      role: 1, // Admin role
+      remember_token: adminToken,
+    });
+
     const token = jwt.sign(
-      { id: result.insertId, email, role: 1, remember_token: adminToken },
+      { id: newUser.id, email, role: 1, remember_token: adminToken },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
-    
     res.status(201).json({ message: 'Admin registered successfully', token });
   } catch (err) {
     console.error('Admin registration error:', err);
@@ -110,36 +104,15 @@ router.post('/register-admin', async (req, res) => {
   }
 });
 
-
-
-
-
-
-
-
-
-
-// (Optional) Registration route if needed;
-
 router.get('/', async (req, res) => {
+  const models = getModels();
   try {
-    const [users] = await pool.query('SELECT * FROM users');
+    const users = await models.User.findAll();
     res.json(users);
   } catch (err) {
     console.error('Error during fetching users:', err);
     res.status(500).json({ error: 'Server error' });
   }
-})
-
-
-// Admin registration route
-
-
+});
 
 module.exports = router;
-
-
-// Login Route - POST /users/login
-
-
-

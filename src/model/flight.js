@@ -1,6 +1,5 @@
-// models/flight.js
 const { DataTypes } = require('sequelize');
-const sequelize = require('./../../db2'); // Import the database connection
+const sequelize = require('../../db2'); // Updated from ../../db2
 
 const Flight = sequelize.define('Flight', {
   flight_number: {
@@ -20,7 +19,7 @@ const Flight = sequelize.define('Flight', {
     allowNull: false,
   },
   airport_stop_ids: {
-    type: DataTypes.JSON, // Array of airport IDs for stops
+    type: DataTypes.JSON,
     allowNull: true,
   },
   seat_limit: {
@@ -28,7 +27,7 @@ const Flight = sequelize.define('Flight', {
     allowNull: false,
   },
   status: {
-    type: DataTypes.INTEGER, // 0 for inactive, 1 for active
+    type: DataTypes.INTEGER,
     allowNull: false,
   },
   created_at: {
@@ -41,7 +40,10 @@ const Flight = sequelize.define('Flight', {
   },
 }, {
   tableName: 'flights',
-  timestamps: false, // Disable automatic timestamp management by Sequelize
+  timestamps: false,
 });
+
+// Add debugging
+console.log('Flight model defined:', Flight !== undefined);
 
 module.exports = Flight;
