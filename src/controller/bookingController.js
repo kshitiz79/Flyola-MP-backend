@@ -1,5 +1,6 @@
 const getModels = () => require('../model'); // Lazy-load models
-
+const { verifyPayment } = require('../utils/razorpay');
+const { createPaymentUtil } = require('./paymentController');
 // Helper function to calculate next weekday (borrowed from flightController.js)
 function getNextWeekday(weekday) {
   const weekdayMap = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
@@ -105,7 +106,6 @@ const completeBooking = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
 const getBookings = async (req, res) => {
   const models = getModels();
   try {
