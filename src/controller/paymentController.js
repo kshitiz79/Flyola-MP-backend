@@ -1,4 +1,32 @@
-const getModels = () => require('../model'); // Lazy-load models
+const getModels = () => require('../model');
+const { razorpay } = require('../utils/razorpay');
+
+// Utility function to create a payment
+const createPaymentUtil = async (paymentData, transaction) => {
+  const models = getModels();
+  try {
+    const newPayment = await models.Payment.create(paymentData, { transaction });
+    return newPayment;
+  } catch (err) {
+    throw new Error('Failed to create payment: ' + err.message);
+  }
+};
+
+// Create Razorpay order
+const createOrder = async (req, res) => {
+  const { amount } = req.body;
+  try {
+    const order = await razorpay.orders.create({
+      amount: amount * 100, // Convert to paise
+      currency: 'INR',
+      receipt: `receipt_${Date.now()}`,
+    });
+    res.json({ order_id: order.id });
+  } catch (err) {
+    console.error('Error creating Razorpay order:', err);
+    res.status(500).json({ error: 'Failed to create order' });
+  }
+};
 
 // Get all payments
 const getPayments = async (req, res) => {
@@ -32,12 +60,11 @@ const getPaymentById = async (req, res) => {
   }
 };
 
-// Create a payment
+// Create a payment (standalone endpoint)
 const createPayment = async (req, res) => {
-  const models = getModels();
   const { transaction_id, payment_id, payment_status, payment_mode, payment_amount, message, booking_id, user_id } = req.body;
   try {
-    const newPayment = await models.Payment.create({
+    const newPayment = await createPaymentUtil({
       transaction_id,
       payment_id,
       payment_status,
@@ -50,7 +77,7 @@ const createPayment = async (req, res) => {
     res.status(201).json(newPayment);
   } catch (err) {
     console.error('Error creating payment:', err);
-    res.status(500).json({ error: 'Failed to create payment' });
+    res.status(500).json({ error: err.message });
   }
 };
 
@@ -99,9 +126,11 @@ const deletePayment = async (req, res) => {
 };
 
 module.exports = {
+  createOrder,
   getPayments,
   getPaymentById,
   createPayment,
   updatePayment,
   deletePayment,
+  createPaymentUtil,
 };

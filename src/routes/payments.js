@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const paymentController = require('./../controller/paymentController');
 
+
+router.post('/create-order', paymentController.createOrder);
 router.get('/', paymentController.getPayments);
 router.get('/:id', paymentController.getPaymentById);
 router.post('/', paymentController.createPayment);

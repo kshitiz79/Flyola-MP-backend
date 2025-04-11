@@ -20,7 +20,7 @@ const completeBooking = async (req, res) => {
   const { bookedSeat, booking, billing, payment } = req.body;
 
   if (!bookedSeat || !booking || !billing || !payment) {
-    return res.status(400).json({ error: 'Missing required data: bookedSeat, booking, billing, payment' });
+    return res.status(400).json({ error: 'Missing required data' });
   }
 
   if (!models.sequelize) {
@@ -32,7 +32,6 @@ const completeBooking = async (req, res) => {
   try {
     transaction = await models.sequelize.transaction();
 
-    // Step 1: Validate schedule and seat availability
     const schedule = await models.FlightSchedule.findByPk(bookedSeat.schedule_id, {
       include: [{ model: models.Flight }],
       lock: transaction.LOCK.UPDATE,
@@ -51,12 +50,9 @@ const completeBooking = async (req, res) => {
     const availableSeats = flight.seat_limit - bookedSeats;
     if (availableSeats < bookedSeat.booked_seat) {
       await transaction.rollback();
-      return res.status(400).json({
-        error: `Not enough seats available. Requested: ${bookedSeat.booked_seat}, Available: ${availableSeats}`,
-      });
+      return res.status(400).json({ error: `Not enough seats available` });
     }
 
-    // Step 2: Validate bookDate against Flight.departure_day
     const nextFlightDate = getNextWeekday(flight.departure_day);
     const bookDate = new Date(bookedSeat.bookDate);
     if (
@@ -70,60 +66,25 @@ const completeBooking = async (req, res) => {
       });
     }
 
-    // Step 3: Create records
-    const newBookedSeat = await models.BookedSeat.create(
-      {
-        bookDate: bookedSeat.bookDate,
-        schedule_id: bookedSeat.schedule_id,
-        booked_seat: bookedSeat.booked_seat,
-      },
-      { transaction }
-    );
+    // Verify Razorpay payment
+    const { payment_id, order_id, razorpay_signature } = payment;
+    if (payment.payment_mode === 'RAZORPAY') {
+      const isValid = await verifyPayment(payment_id, order_id, razorpay_signature);
+      if (!isValid) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Payment verification failed' });
+      }
+    }
 
+    const newBookedSeat = await models.BookedSeat.create(bookedSeat, { transaction });
     const newBooking = await models.Booking.create(
-      {
-        pnr: booking.pnr,
-        bookingNo: booking.bookingNo,
-        contact_no: booking.contact_no,
-        email_id: booking.email_id,
-        noOfPassengers: booking.noOfPassengers,
-        bookDate: booking.bookDate,
-        schedule_id: booking.schedule_id,
-        totalFare: booking.totalFare,
-        paymentStatus: 'PENDING',
-        bookingStatus: 'PENDING',
-        bookedUserId: booking.bookedUserId,
-      },
+      { ...booking, paymentStatus: 'PENDING', bookingStatus: 'PENDING' },
       { transaction }
     );
-
-    const newBilling = await models.Billing.create(
-      {
-        billing_name: billing.billing_name,
-        billing_email: billing.billing_email,
-        billing_number: billing.billing_number,
-        billing_address: billing.billing_address,
-        billing_country: billing.billing_country,
-        billing_state: billing.billing_state,
-        billing_pin_code: billing.billing_pin_code,
-        GST_Number: billing.GST_Number || null,
-        user_id: billing.user_id,
-      },
-      { transaction }
-    );
-
-    const newPayment = await models.Payment.create(
-      {
-        transaction_id: payment.transaction_id,
-        payment_id: payment.payment_id,
-        payment_status: payment.payment_status,
-        payment_mode: payment.payment_mode,
-        payment_amount: payment.payment_amount,
-        message: payment.message,
-        booking_id: newBooking.id,
-        user_id: payment.user_id,
-      },
-      { transaction }
+    const newBilling = await models.Billing.create(billing, { transaction });
+    const newPayment = await createPaymentUtil(
+      { ...payment, booking_id: newBooking.id },
+      transaction
     );
 
     await models.Booking.update(
