@@ -13,3 +13,7 @@ router.delete('/:id', bookingController.deleteBooking); // Example
 router.post('/complete-booking', bookingController.completeBooking);
 
 module.exports = router;
+
+
+
+

@@ -15,7 +15,7 @@ const getBookedSeats = async (req, res) => {
   }
 };
 
-// Get a booked seat by ID
+
 const getBookedSeatById = async (req, res) => {
   const models = getModels();
   const { id } = req.params;
@@ -33,7 +33,7 @@ const getBookedSeatById = async (req, res) => {
   }
 };
 
-// Create a booked seat
+
 const createBookedSeat = async (req, res) => {
   const models = getModels();
   const { bookDate, schedule_id, booked_seat } = req.body;

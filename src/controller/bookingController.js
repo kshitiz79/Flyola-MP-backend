@@ -14,19 +14,15 @@ function getNextWeekday(weekday) {
   return nextDate;
 }
 
+
 const completeBooking = async (req, res) => {
   const models = getModels();
   console.log('Received complete-booking request:', req.body);
 
-  const { bookedSeat, booking, billing, payment } = req.body;
+  const { bookedSeat, booking, billing, payment, passengers } = req.body;
 
-  if (!bookedSeat || !booking || !billing || !payment) {
-    return res.status(400).json({ error: 'Missing required data' });
-  }
-
-  if (!models.sequelize) {
-    console.error('Sequelize instance is undefined');
-    return res.status(500).json({ error: 'Database configuration error' });
+  if (!bookedSeat || !booking || !billing || !payment || !passengers || !passengers.length) {
+    return res.status(400).json({ error: 'Missing required data, including passenger details' });
   }
 
   let transaction;
@@ -88,6 +84,26 @@ const completeBooking = async (req, res) => {
       transaction
     );
 
+    // Validate and save passengers
+    const passengerPromises = passengers.map((passenger) => {
+      // Ensure age is provided and non-null
+      if (!passenger.age || typeof passenger.age !== 'number' || passenger.age < 0) {
+        throw new Error(`Invalid or missing age for passenger ${passenger.fullName}`);
+      }
+      return models.Passenger.create(
+        {
+          name: passenger.fullName,
+          age: passenger.age,
+          dob: passenger.dateOfBirth,
+          title: passenger.title,
+          type: passenger.type || 'Adult',
+          bookingId: newBooking.id,
+        },
+        { transaction }
+      );
+    });
+    await Promise.all(passengerPromises);
+
     await models.Booking.update(
       { paymentStatus: 'PAYMENT_SUCCESS', bookingStatus: 'CONFIRMED' },
       { where: { id: newBooking.id }, transaction }
@@ -99,6 +115,7 @@ const completeBooking = async (req, res) => {
       booking: newBooking,
       billing: newBilling,
       payment: newPayment,
+      passengers,
     });
   } catch (err) {
     if (transaction) await transaction.rollback();
@@ -106,6 +123,7 @@ const completeBooking = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 const getBookings = async (req, res) => {
   const models = getModels();
   try {
@@ -177,3 +195,5 @@ module.exports = {
   updateBooking,
   deleteBooking,
 };
+
+

@@ -11,3 +11,6 @@ router.put('/:id', paymentController.updatePayment);
 router.delete('/:id', paymentController.deletePayment);
 
 module.exports = router;
+
+
+

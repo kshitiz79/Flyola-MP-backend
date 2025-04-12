@@ -49,6 +49,8 @@ app.use('/bookings', require('./src/routes/bookings'));
 app.use('/booked-seat', require('./src/routes/bookedSeates'));
 
 
+app.use('/passenger', require('./src/routes/passengerRoutes'));
+
 
 
 const flightRoutes = require('./src/routes/flightRoutes');
