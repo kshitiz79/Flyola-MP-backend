@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const sequelize = require('./../../db2'); // 确保使用正确的数据库连接文件
+const sequelize = require('./../../db2'); 
 
 const BookedSeat = sequelize.define(
   'BookedSeat',

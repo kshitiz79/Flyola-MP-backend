@@ -1,4 +1,4 @@
-// models/index.js
+// src/models/index.js
 const sequelize = require("../../db2");
 const { Sequelize } = require("sequelize");
 
@@ -12,6 +12,8 @@ const models = {
   Airport: require("./airport"),
   User: require("./user"),
   Passenger: require("./passanger"),
+
+
   sequelize,
   Sequelize,
 };
@@ -19,10 +21,24 @@ const models = {
 // Log the loaded models to verify
 console.log("Models loaded:", Object.keys(models));
 console.log("Passenger:", models.Passenger ? "Defined" : "Undefined");
+console.log("Review:", models.Review ? "Defined" : "Undefined");
 
-// Define associations
-models.FlightSchedule.belongsTo(models.Airport, { as: "DepartureAirport", foreignKey: "departure_airport_id" });
-models.FlightSchedule.belongsTo(models.Airport, { as: "ArrivalAirport", foreignKey: "arrival_airport_id" });
+// Call associate methods for models that define them
+Object.keys(models).forEach((modelName) => {
+  if (typeof models[modelName].associate === "function") {
+    models[modelName].associate(models);
+  }
+});
+
+// Define associations (for models not using associate method or to ensure consistency)
+models.FlightSchedule.belongsTo(models.Airport, {
+  as: "DepartureAirport",
+  foreignKey: "departure_airport_id",
+});
+models.FlightSchedule.belongsTo(models.Airport, {
+  as: "ArrivalAirport",
+  foreignKey: "arrival_airport_id",
+});
 models.FlightSchedule.belongsTo(models.Flight, { foreignKey: "flight_id" });
 
 models.BookedSeat.belongsTo(models.FlightSchedule, { foreignKey: "schedule_id" });
