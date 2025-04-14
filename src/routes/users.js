@@ -8,7 +8,7 @@ const router = express.Router();
 
 router.post('/login', async (req, res) => {
   const models = getModels();
-  const { email, password, rememberMe } = req.body;
+  const { email, password } = req.body;
   try {
     const user = await models.User.findOne({ where: { email } });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
@@ -16,22 +16,17 @@ router.post('/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
 
-    // Set token expiry based on rememberMe flag
-    const tokenExpiry = rememberMe ? '7d' : '1h';
-    const cookieExpiry = rememberMe ? 604800000 : 3600000; // 7 days vs 1 hour (in milliseconds)
-
     const token = jwt.sign(
-      { id: user.id, role: Number(user.role), email: user.email },
+      { id: user.id, role: Number(user.role), email: user.email, remember_token: user.remember_token || null },
       process.env.JWT_SECRET,
-      { expiresIn: tokenExpiry }
+      { expiresIn: '1h' }
     );
 
-    // Send token in an HTTP‑only cookie
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: cookieExpiry,
+      maxAge: 3600000,
     });
     res.json({ token, role: Number(user.role), message: 'Login successful' });
   } catch (err) {
@@ -43,29 +38,6 @@ router.post('/login', async (req, res) => {
 router.post('/logout', (req, res) => {
   res.clearCookie('token');
   res.json({ message: 'Logged out successfully' });
-});
-
-// (Optional) Refresh token endpoint – useful if you decide to implement a refresh token strategy.
-router.post('/refresh-token', (req, res) => {
-  const token = req.cookies.token;
-  if (!token) return res.sendStatus(401);
-  
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) return res.sendStatus(403);
-    
-    const newToken = jwt.sign(
-      { id: decoded.id, role: decoded.role, email: decoded.email },
-      process.env.JWT_SECRET,
-      { expiresIn: '1h' } // Issue a new short‑lived token (adjust as needed)
-    );
-    res.cookie('token', newToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 3600000,
-    });
-    res.json({ token: newToken });
-  });
 });
 
 router.post('/register', async (req, res) => {
@@ -88,7 +60,7 @@ router.post('/register', async (req, res) => {
     });
 
     const token = jwt.sign(
-      { id: newUser.id, email, role: 3 },
+      { id: newUser.id, email, role: 3, remember_token: null },
       process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
