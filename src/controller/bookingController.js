@@ -15,6 +15,8 @@ function getNextWeekday(weekday) {
 }
 
 
+
+
 const completeBooking = async (req, res) => {
   const models = getModels();
   console.log('Received complete-booking request:', req.body);
@@ -124,6 +126,13 @@ const completeBooking = async (req, res) => {
   }
 };
 
+
+
+
+
+
+
+
 const getBookings = async (req, res) => {
   const models = getModels();
   try {
@@ -197,3 +206,118 @@ module.exports = {
 };
 
 
+
+
+
+
+
+// const completeBooking = async (req, res) => {
+//   const models = getModels();
+//   console.log("Received complete-booking request:", req.body);
+
+//   const { bookedSeat, booking, billing, payment, passengers } = req.body;
+
+//   if (!bookedSeat || !booking || !billing || !payment || !passengers || !passengers.length) {
+//     return res.status(400).json({ error: "Missing required data, including passenger details" });
+//   }
+
+//   let transaction;
+//   try {
+//     transaction = await models.sequelize.transaction();
+
+//     const schedule = await models.FlightSchedule.findByPk(bookedSeat.schedule_id, {
+//       include: [{ model: models.Flight }],
+//       lock: transaction.LOCK.UPDATE,
+//       transaction,
+//     });
+//     if (!schedule) {
+//       await transaction.rollback();
+//       return res.status(404).json({ error: "Flight schedule not found" });
+//     }
+
+//     const flight = schedule.Flight;
+//     const bookedSeats = (await models.BookedSeat.sum("booked_seat", {
+//       where: { schedule_id: bookedSeat.schedule_id },
+//       transaction,
+//     })) || 0;
+//     const availableSeats = flight.seat_limit - bookedSeats;
+//     if (availableSeats < bookedSeat.booked_seat) {
+//       await transaction.rollback();
+//       return res.status(400).json({ error: `Not enough seats available` });
+//     }
+
+//     const nextFlightDate = getNextWeekday(flight.departure_day);
+//     const bookDate = new Date(bookedSeat.bookDate);
+//     if (
+//       bookDate.getDate() !== nextFlightDate.getDate() ||
+//       bookDate.getMonth() !== nextFlightDate.getMonth() ||
+//       bookDate.getFullYear() !== nextFlightDate.getFullYear()
+//     ) {
+//       await transaction.rollback();
+//       return res.status(400).json({
+//         error: `Booking date ${bookedSeat.bookDate} does not match flight schedule (${flight.departure_day})`,
+//       });
+//     }
+
+//     // Skip Razorpay verification if payment mode is "DUMMY"
+//     if (payment.payment_mode === "RAZORPAY") {
+//       const { payment_id, order_id, razorpay_signature } = payment;
+//       const isValid = await verifyPayment(payment_id, order_id, razorpay_signature);
+//       if (!isValid) {
+//         await transaction.rollback();
+//         return res.status(400).json({ error: "Payment verification failed" });
+//       }
+//     } else if (payment.payment_mode !== "DUMMY") {
+//       await transaction.rollback();
+//       return res.status(400).json({ error: "Unsupported payment mode" });
+//     }
+
+//     const newBookedSeat = await models.BookedSeat.create(bookedSeat, { transaction });
+//     const newBooking = await models.Booking.create(
+//       { ...booking, paymentStatus: "PENDING", bookingStatus: "PENDING" },
+//       { transaction }
+//     );
+//     const newBilling = await models.Billing.create(billing, { transaction });
+//     const newPayment = await createPaymentUtil(
+//       { ...payment, booking_id: newBooking.id },
+//       transaction
+//     );
+
+//     // Validate and save passengers
+//     const passengerPromises = passengers.map((passenger) => {
+//       if (!passenger.age || typeof passenger.age !== "number" || passenger.age < 0) {
+//         throw new Error(`Invalid or missing age for passenger ${passenger.fullName}`);
+//       }
+//       return models.Passenger.create(
+//         {
+//           name: passenger.fullName,
+//           age: passenger.age,
+//           dob: passenger.dateOfBirth,
+//           title: passenger.title,
+//           type: passenger.type || "Adult",
+//           bookingId: newBooking.id,
+//         },
+//         { transaction }
+//       );
+//     });
+//     await Promise.all(passengerPromises);
+
+//     await models.Booking.update(
+//       { paymentStatus: "PAYMENT_SUCCESS", bookingStatus: "CONFIRMED" },
+//       { where: { id: newBooking.id }, transaction }
+//     );
+
+//     await transaction.commit();
+//     res.status(201).json({
+//       bookedSeat: newBookedSeat,
+//       booking: newBooking,
+//       billing: newBilling,
+//       payment: newPayment,
+//       passengers,
+//     });
+//   } catch (err) {
+//     if (transaction) await transaction.rollback();
+//     console.error("Error completing booking:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// };
