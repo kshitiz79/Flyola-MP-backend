@@ -23,6 +23,17 @@ function combineDateAndTime(dateObj, timeString) {
   return combined;
 }
 
+
+
+
+
+
+
+
+
+
+
+
 async function updateFlightStatuses() {
   const models = getModels();
   try {

@@ -6,6 +6,7 @@ require('dotenv').config();
 
 const router = express.Router();
 
+/** Login Route **/
 router.post('/login', async (req, res) => {
   const models = getModels();
   const { email, password } = req.body;
@@ -22,12 +23,15 @@ router.post('/login', async (req, res) => {
       { expiresIn: '1h' }
     );
 
+    // Optionally remove httpOnly if you need client-side access for quick redirection.
     res.cookie('token', token, {
-      httpOnly: true,
+      // httpOnly: true, // Uncomment for security if you use a secure token lookup endpoint instead of localStorage
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       maxAge: 3600000,
     });
+    
+    // Send token and role in JSON response for client-side usage
     res.json({ token, role: Number(user.role), message: 'Login successful' });
   } catch (err) {
     console.error('[Login Error]', err);
@@ -35,11 +39,13 @@ router.post('/login', async (req, res) => {
   }
 });
 
+/** Logout Route **/
 router.post('/logout', (req, res) => {
   res.clearCookie('token');
   res.json({ message: 'Logged out successfully' });
 });
 
+/** Register Route **/
 router.post('/register', async (req, res) => {
   const models = getModels();
   const { name, email, password, number } = req.body;
@@ -71,6 +77,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
+/** Register Admin Route **/
 router.post('/register-admin', async (req, res) => {
   const models = getModels();
   const { name, email, password, number } = req.body;
@@ -104,6 +111,7 @@ router.post('/register-admin', async (req, res) => {
   }
 });
 
+/** Fetch All Users **/
 router.get('/', async (req, res) => {
   const models = getModels();
   try {
@@ -112,6 +120,55 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('Error during fetching users:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/** Forgot Password Route **/
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  const models = getModels();
+  try {
+    const user = await models.User.findOne({ where: { email } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const resetToken = jwt.sign(
+      { id: user.id, email: user.email, purpose: 'password_reset' },
+      process.env.JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+
+    const resetLink = `${process.env.APP_CLIENT_URL}/reset-password?token=${resetToken}`;
+    const { sendResetPasswordEmail } = require('./../utils/mailer');
+    await sendResetPasswordEmail(user.email, resetLink);
+
+    res.json({ message: 'Password reset email sent' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/** Reset Password Route **/
+router.post('/reset-password', async (req, res) => {
+  const { token, newPassword } = req.body;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.purpose !== 'password_reset') {
+      return res.status(400).json({ error: 'Invalid token purpose' });
+    }
+
+    const models = getModels();
+    const user = await models.User.findOne({ where: { id: decoded.id } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    user.password = hashedPassword;
+    await user.save();
+
+    res.json({ message: 'Password has been reset successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(400).json({ error: 'Invalid or expired token' });
   }
 });
 

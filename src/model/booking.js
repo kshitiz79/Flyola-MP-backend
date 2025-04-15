@@ -1,5 +1,6 @@
+// src/model/booking.js
 const { DataTypes } = require('sequelize');
-const sequelize = require('./../../db2'); // Adjusted from ../../db2
+const sequelize = require('../../db2');
 
 const Booking = sequelize.define(
   'Booking',
@@ -12,7 +13,6 @@ const Booking = sequelize.define(
     pnr: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true,
     },
     bookingNo: {
       type: DataTypes.STRING,
@@ -49,12 +49,10 @@ const Booking = sequelize.define(
     },
     paymentStatus: {
       type: DataTypes.STRING,
-      allowNull: false,
       defaultValue: 'PENDING',
     },
     bookingStatus: {
       type: DataTypes.STRING,
-      allowNull: false,
       defaultValue: 'PENDING',
     },
     bookedUserId: {
@@ -62,7 +60,7 @@ const Booking = sequelize.define(
       allowNull: false,
     },
     pay_amt: {
-      type: DataTypes.DECIMAL(10, 2),
+      type: DataTypes.STRING,
       allowNull: true,
     },
     pay_mode: {
@@ -74,12 +72,12 @@ const Booking = sequelize.define(
       allowNull: true,
     },
     discount: {
-      type: DataTypes.DECIMAL(4, 2),
-      allowNull: true,
+      type: DataTypes.STRING,
+      defaultValue: '0',
     },
     agent_type: {
       type: DataTypes.STRING,
-      allowNull: true,
+      defaultValue: 'flyola',
     },
     created_at: {
       type: DataTypes.DATE,
@@ -99,9 +97,11 @@ const Booking = sequelize.define(
 );
 
 Booking.associate = (models) => {
-  Booking.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id' });
-  Booking.hasMany(models.Payment, { foreignKey: 'booking_id' });
-  Booking.belongsTo(models.User, { foreignKey: 'bookedUserId' }); // Added missing association
+  Booking.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id', targetKey: 'id' });
+  Booking.hasMany(models.Payment, { foreignKey: 'booking_id', sourceKey: 'id' });
+  Booking.belongsTo(models.User, { foreignKey: 'bookedUserId', targetKey: 'id' });
+  Booking.hasMany(models.Passenger, { foreignKey: 'bookingId', sourceKey: 'id' });
+  Booking.hasOne(models.BookedSeat, { foreignKey: 'schedule_id', sourceKey: 'schedule_id' });
 };
 
 module.exports = Booking;

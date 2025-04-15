@@ -1,22 +1,15 @@
-const express = require('express');
-const router = express.Router();
-const flightScheduleController = require('./../controller/flightScheduleController');
+// src/routes/flightSchedules.js
+const router = require('express').Router();
+const ctrl = require('../controller/flightScheduleController');
 
-// Get all flight schedules
-router.get('/', flightScheduleController.getFlightSchedules);
+router.get('/', ctrl.getFlightSchedules);
+router.post('/', ctrl.addFlightSchedule);
+router.put('/:id', ctrl.updateFlightSchedule);
+router.delete('/:id', ctrl.deleteFlightSchedule);
 
-// Add a new flight schedule
-router.post('/', flightScheduleController.addFlightSchedule);
-
-// Update a flight schedule
-router.put('/:id', flightScheduleController.updateFlightSchedule);
-
-// Delete a flight schedule
-router.delete('/:id', flightScheduleController.deleteFlightSchedule);
-
-// Bulk operations
-router.put('/activate-all', flightScheduleController.activateAllFlightSchedules);
-router.put('/edit-all', flightScheduleController.editAllFlightSchedules);
-router.delete('/delete-all', flightScheduleController.deleteAllFlightSchedules);
+// Bulk operations – adjust as needed
+router.post('/activate-all', ctrl.activateAllFlightSchedules);
+router.post('/edit-all', ctrl.editAllFlightSchedules);
+router.delete('/delete-all', ctrl.deleteAllFlightSchedules);
 
 module.exports = router;

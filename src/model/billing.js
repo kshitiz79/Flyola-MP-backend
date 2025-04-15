@@ -1,5 +1,6 @@
+// src/model/billing.js
 const { DataTypes } = require('sequelize');
-const sequelize = require('../../db2'); // Updated from ../../db2
+const sequelize = require('../../db2');
 
 const Billing = sequelize.define(
   'Billing',
@@ -11,31 +12,31 @@ const Billing = sequelize.define(
     },
     billing_name: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     billing_email: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     billing_number: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     billing_address: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     billing_country: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     billing_state: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     billing_pin_code: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     GST_Number: {
       type: DataTypes.STRING,
@@ -55,16 +56,16 @@ const Billing = sequelize.define(
     },
   },
   {
-    tableName: 'billing_details', // Updated from 'billings'
+    tableName: 'billing_details',
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
   }
 );
 
-// Associations (called by index.js)
 Billing.associate = (models) => {
-  Billing.belongsTo(models.User, { foreignKey: 'user_id' });
+  Billing.belongsTo(models.User, { foreignKey: 'user_id', targetKey: 'id' });
+  // No Booking association
 };
 
 module.exports = Billing;

@@ -1,114 +1,120 @@
-const getModels = () => require('../model'); // Returns { FlightSchedule, Flight, ... }
+// src/controllers/flightScheduleController.js
+const getModels = () => require('../model'); // Lazy‑load models
+const { Op } = require('sequelize');
 
-const getFlightSchedules = async (req, res) => {
-  const models = getModels(); // No extra { models } destructuring
-  console.log('FlightScheduleController models:', models.FlightSchedule ? 'Defined' : 'Undefined');
+/* ───────────────── helper: seats left for a date ───────────────── */
+async function seatsLeft(models, schedule_id, bookDate) {
+  const booked = await models.BookedSeat.sum('booked_seat', {
+    where: { schedule_id, bookDate },
+  });
+  const schedule = await models.FlightSchedule.findByPk(schedule_id, {
+    include: [{ model: models.Flight }],
+  });
+  return schedule.Flight.seat_limit - (booked || 0);
+}
+
+/* ───────── GET /flight-schedules ─────────
+   Endpoint accepts ?user=true&date=YYYY-MM-DD
+   and returns each schedule enriched with availableSeats.
+──────────────────────────────────────────── */
+async function getFlightSchedules(req, res) {
+  const models = getModels();
+  const isUserRequest = req.query.user === 'true';
+  const bookDate = req.query.date;
+
   try {
-    const isUserRequest = req.query.user === 'true';
-    const whereClause = isUserRequest ? { status: 1 } : {};
-    const flightSchedules = await models.FlightSchedule.findAll({ where: whereClause });
-    res.json(flightSchedules);
+    const where = isUserRequest ? { status: 1 } : {};
+    const rows = await models.FlightSchedule.findAll({ where });
+
+    const output = await Promise.all(
+      rows.map(async (r) => ({
+        ...r.toJSON(),
+        availableSeats: await seatsLeft(models, r.id, bookDate || new Date().toISOString().slice(0, 10)),
+      }))
+    );
+
+    res.json(output);
   } catch (err) {
-    console.error('Error fetching flight schedules:', err);
+    console.error('getFlightSchedules:', err);
     res.status(500).json({ error: 'Database query failed' });
   }
-};
-
-const addFlightSchedule = async (req, res) => {
+}
+/* ───────────────── simple CRUD helpers (unchanged) ───────── */
+async function addFlightSchedule(req, res) {
   const models = getModels();
-  const { flight_id, departure_airport_id, arrival_airport_id, departure_time, arrival_time, price, via_stop_id, via_schedule_id, status } = req.body;
   try {
-    const newSchedule = await models.FlightSchedule.create({
-      flight_id,
-      departure_airport_id,
-      arrival_airport_id,
-      departure_time,
-      arrival_time,
-      price,
-      via_stop_id,
-      via_schedule_id,
-      status,
-    });
-    res.status(201).json({ message: 'Flight schedule added successfully', id: newSchedule.id });
+    const row = await models.FlightSchedule.create(req.body);
+    res.status(201).json({ id: row.id });
   } catch (err) {
-    console.error('Error adding flight schedule:', err);
+    console.error('addFlightSchedule:', err);
     res.status(500).json({ error: 'Failed to add flight schedule' });
   }
-};
+}
 
-const updateFlightSchedule = async (req, res) => {
+async function updateFlightSchedule(req, res) {
   const models = getModels();
-  const { id } = req.params;
-  const { flight_id, departure_airport_id, arrival_airport_id, departure_time, arrival_time, price, via_stop_id, via_schedule_id, status } = req.body;
   try {
-    const schedule = await models.FlightSchedule.findByPk(id);
-    if (!schedule) return res.status(404).json({ error: 'Flight schedule not found' });
-    await schedule.update({
-      flight_id,
-      departure_airport_id,
-      arrival_airport_id,
-      departure_time,
-      arrival_time,
-      price,
-      via_stop_id,
-      via_schedule_id,
-      status,
-    });
-    res.json({ message: 'Flight schedule updated successfully' });
+    const row = await models.FlightSchedule.findByPk(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    await row.update(req.body);
+    res.json({ message: 'Updated' });
   } catch (err) {
-    console.error('Error updating flight schedule:', err);
-    res.status(500).json({ error: 'Failed to update flight schedule' });
+    console.error('updateFlightSchedule:', err);
+    res.status(500).json({ error: 'Failed to update' });
   }
-};
+}
 
-const deleteFlightSchedule = async (req, res) => {
+async function deleteFlightSchedule(req, res) {
   const models = getModels();
-  const { id } = req.params;
   try {
-    const schedule = await models.FlightSchedule.findByPk(id);
-    if (!schedule) return res.status(404).json({ error: 'Flight schedule not found' });
-    await schedule.destroy();
-    res.json({ message: 'Flight schedule deleted successfully' });
+    const row = await models.FlightSchedule.findByPk(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    await row.destroy();
+    res.json({ message: 'Deleted' });
   } catch (err) {
-    console.error('Error deleting flight schedule:', err);
-    res.status(500).json({ error: 'Failed to delete flight schedule' });
+    console.error('deleteFlightSchedule:', err);
+    res.status(500).json({ error: 'Failed to delete' });
   }
-};
+}
 
-const activateAllFlightSchedules = async (req, res) => {
+async function activateAllFlightSchedules(req, res) {
   const models = getModels();
   try {
     await models.FlightSchedule.update({ status: 1 }, { where: {} });
-    res.json({ message: 'All flight schedules activated successfully' });
+    res.json({ message: 'All flight schedules activated' });
   } catch (err) {
-    console.error('Error activating all flight schedules:', err);
-    res.status(500).json({ error: 'Failed to activate all flight schedules' });
+    console.error(err);
+    res.status(500).json({ error: 'Failed to activate all' });
   }
-};
+}
 
-const editAllFlightSchedules = async (req, res) => {
+async function editAllFlightSchedules(req, res) {
   const models = getModels();
   const { price } = req.body;
-  if (!price || isNaN(price)) return res.status(400).json({ error: 'Invalid price value' });
+  if (!price || isNaN(price))
+    return res.status(400).json({ error: 'Invalid price' });
   try {
-    await models.FlightSchedule.update({ price: parseFloat(price) }, { where: {} });
-    res.json({ message: 'All flight schedules updated successfully' });
+    await models.FlightSchedule.update(
+      { price: parseFloat(price) },
+      { where: {} }
+    );
+    res.json({ message: 'All flight schedules updated' });
   } catch (err) {
-    console.error('Error editing all flight schedules:', err);
-    res.status(500).json({ error: 'Failed to edit all flight schedules' });
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update all' });
   }
-};
+}
 
-const deleteAllFlightSchedules = async (req, res) => {
+async function deleteAllFlightSchedules(req, res) {
   const models = getModels();
   try {
     await models.FlightSchedule.destroy({ where: {} });
-    res.json({ message: 'All flight schedules deleted successfully' });
+    res.json({ message: 'All flight schedules deleted' });
   } catch (err) {
-    console.error('Error deleting all flight schedules:', err);
-    res.status(500).json({ error: 'Failed to delete all flight schedules' });
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete all' });
   }
-};
+}
 
 module.exports = {
   getFlightSchedules,
