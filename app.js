@@ -83,6 +83,5 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
-// Sync Sequelize models (if required)
-// sequelize.sync() // Uncomment if you want to sync models automatically
+
 module.exports = app;

@@ -18,31 +18,20 @@ function getNextWeekday(weekday) {
 
 function combineDateAndTime(dateObj, timeString) {
   const [hours, minutes, seconds] = (timeString || '00:00:00').split(':').map(Number);
-  const combined = new Date(dateObj);
-  combined.setHours(hours, minutes, seconds || 0, 0);
-  return combined;
+  const dateStr = `${dateObj.toISOString().split('T')[0]}T${timeString || '00:00:00'}+05:30`;
+  return new Date(dateStr);
 }
-
-
-
-
-
-
-
-
-
-
-
 
 async function updateFlightStatuses() {
   const models = getModels();
   try {
-    const now = new Date();
+    const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+    const nowIST = new Date(now);
     const flights = await models.Flight.findAll();
     for (const flight of flights) {
       const datePart = getNextWeekday(flight.departure_day);
       const flightDateTime = combineDateAndTime(datePart, flight.departure_time);
-      if (flightDateTime < now && flight.status === 0) {
+      if (flightDateTime < nowIST && flight.status === 0) {
         await flight.update({ status: 1 });
       }
     }
@@ -116,12 +105,24 @@ const deleteFlight = async (req, res) => {
   const { id } = req.params;
   try {
     const flight = await models.Flight.findByPk(id);
-    if (!flight) return res.status(404).json({ error: 'Flight not found' });
+    if (!flight) {
+      return res.status(404).json({ error: 'Flight not found' });
+    }
     await flight.destroy();
     res.json({ message: 'Flight deleted successfully' });
   } catch (err) {
     console.error('Error deleting flight:', err);
-    res.status(500).json({ error: 'Failed to delete flight' });
+    if (err.name === 'SequelizeForeignKeyConstraintError') {
+      return res.status(400).json({
+        error: 'Cannot delete flight due to existing dependencies (e.g., bookings).',
+      });
+    }
+    if (err.name === 'SequelizeDatabaseError') {
+      return res.status(500).json({
+        error: `Database error: ${err.message}`,
+      });
+    }
+    res.status(500).json({ error: `Failed to delete flight: ${err.message}` });
   }
 };
 
