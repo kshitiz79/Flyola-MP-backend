@@ -1,14 +1,44 @@
-const getModels = () => require('../model'); // Lazy-load models
+
+const { format, toZonedTime } = require('date-fns-tz');
 const { Op } = require('sequelize');
+const getModels = () => require('../model'); // Lazy-load models
 
 async function seatsLeft(models, schedule_id, bookDate) {
-  const booked = await models.BookedSeat.sum('booked_seat', {
-    where: { schedule_id, bookDate },
-  });
   const schedule = await models.FlightSchedule.findByPk(schedule_id, {
     include: [{ model: models.Flight }],
   });
-  return schedule.Flight.seat_limit - (booked || 0);
+  if (!schedule || !schedule.Flight) return 0;
+
+  const flight = schedule.Flight;
+  const routeAirports = flight.airport_stop_ids
+    ? JSON.parse(flight.airport_stop_ids)
+    : [flight.start_airport_id, flight.end_airport_id];
+
+  // Get the segment's start and end indices in the route
+  const segmentStartIndex = routeAirports.indexOf(schedule.departure_airport_id);
+  const segmentEndIndex = routeAirports.indexOf(schedule.arrival_airport_id);
+
+  // Find all schedules that overlap with this segment
+  const allSchedules = await models.FlightSchedule.findAll({
+    where: { flight_id: flight.id },
+  });
+  const overlappingSchedules = allSchedules.filter((s) => {
+    const startIndex = routeAirports.indexOf(s.departure_airport_id);
+    const endIndex = routeAirports.indexOf(s.arrival_airport_id);
+    return startIndex <= segmentStartIndex && endIndex >= segmentEndIndex;
+  });
+
+  // Sum booked seats across all overlapping schedules
+  let totalBooked = 0;
+  for (const s of overlappingSchedules) {
+    const booked = await models.BookedSeat.sum('booked_seat', {
+      where: { schedule_id: s.id, bookDate },
+      transaction: null, // Use transaction if called within one
+    });
+    totalBooked += booked || 0;
+  }
+
+  return Math.max(0, flight.seat_limit - totalBooked);
 }
 
 async function getFlightSchedules(req, res) {
@@ -26,12 +56,12 @@ async function getFlightSchedules(req, res) {
     let output = [];
     if (monthQuery) {
       const [year, month] = monthQuery.split("-").map(Number);
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0); // Last day of the month
+      const startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
+      const endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata'); // Last day of the month
 
       for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-        const currentDate = d.toISOString().slice(0, 10);
-        const weekday = d.toLocaleDateString("en-US", { weekday: "long" });
+        const currentDate = format(d, 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
+        const weekday = format(d, 'EEEE', { timeZone: 'Asia/Kolkata' });
 
         for (const r of rows) {
           const flight = r.Flight;
@@ -54,7 +84,7 @@ async function getFlightSchedules(req, res) {
         }
       }
     } else {
-      const bookDate = req.query.date || new Date().toISOString().slice(0, 10);
+      const bookDate = req.query.date || format(new Date(), 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
       output = await Promise.all(
         rows.map(async (r) => {
           let viaStopIds = [];
@@ -74,6 +104,7 @@ async function getFlightSchedules(req, res) {
       );
     }
 
+    console.log('getFlightSchedules - output:', output);
     res.json(output);
   } catch (err) {
     console.error('getFlightSchedules:', err);

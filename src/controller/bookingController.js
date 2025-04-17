@@ -17,20 +17,82 @@ function getNextWeekday(weekday) {
 }
 
 async function getWrappedScheduleIds(models, schedule_id) {
-  const schedule = await models.FlightSchedule.findByPk(schedule_id);
+  const schedule = await models.FlightSchedule.findByPk(schedule_id, {
+    include: [{ model: models.Flight }],
+  });
   if (!schedule) throw new Error('Schedule not found');
-  const wrappedIds = schedule.via_schedule_id ? JSON.parse(schedule.via_schedule_id) : [];
-  return [schedule_id, ...wrappedIds];
+
+  const flight = schedule.Flight;
+  const allSchedules = await models.FlightSchedule.findAll({
+    where: { flight_id: flight.id },
+    include: [{ model: models.Flight }],
+  });
+
+  const routeAirports = flight.airport_stop_ids
+    ? JSON.parse(flight.airport_stop_ids)
+    : [flight.start_airport_id, flight.end_airport_id];
+
+  // Get the segment's start and end indices in the route
+  const segmentStartIndex = routeAirports.indexOf(schedule.departure_airport_id);
+  const segmentEndIndex = routeAirports.indexOf(schedule.arrival_airport_id);
+
+  // Find all schedules that include or follow the booked segment
+  const affectedSchedules = allSchedules.filter((s) => {
+    const startIndex = routeAirports.indexOf(s.departure_airport_id);
+    const endIndex = routeAirports.indexOf(s.arrival_airport_id);
+    return startIndex <= segmentStartIndex && endIndex >= segmentEndIndex;
+  });
+
+  return affectedSchedules.map((s) => s.id);
 }
 
+
+
+
+
+
+
 async function sumSeats({ models, schedule_id, bookDate, transaction }) {
-  return (
-    (await models.BookedSeat.sum('booked_seat', {
-      where: { schedule_id, bookDate },
+  const schedule = await models.FlightSchedule.findByPk(schedule_id, {
+    include: [{ model: models.Flight }],
+  });
+  if (!schedule || !schedule.Flight) return 0;
+
+  const flight = schedule.Flight;
+  const routeAirports = flight.airport_stop_ids
+    ? JSON.parse(flight.airport_stop_ids)
+    : [flight.start_airport_id, flight.end_airport_id];
+
+  const segmentStartIndex = routeAirports.indexOf(schedule.departure_airport_id);
+  const segmentEndIndex = routeAirports.indexOf(schedule.arrival_airport_id);
+
+  const allSchedules = await models.FlightSchedule.findAll({
+    where: { flight_id: flight.id },
+  });
+  const overlappingSchedules = allSchedules.filter((s) => {
+    const startIndex = routeAirports.indexOf(s.departure_airport_id);
+    const endIndex = routeAirports.indexOf(s.arrival_airport_id);
+    return startIndex <= segmentStartIndex && endIndex >= segmentEndIndex;
+  });
+
+  let totalBooked = 0;
+  for (const s of overlappingSchedules) {
+    const booked = await models.BookedSeat.sum('booked_seat', {
+      where: { schedule_id: s.id, bookDate },
       transaction,
-    })) || 0
-  );
+    });
+    totalBooked += booked || 0;
+  }
+
+  return totalBooked;
 }
+
+
+
+
+
+
+
 
 const completeBooking = async (req, res) => {
   const models = getModels();
@@ -44,47 +106,72 @@ const completeBooking = async (req, res) => {
   try {
     transaction = await models.sequelize.transaction();
 
-    const schedule = await models.FlightSchedule.findByPk(bookedSeat.schedule_id, {
-      include: [{ model: models.Flight }],
-      lock: transaction.LOCK.UPDATE,
-      transaction,
-    });
-    if (!schedule) throw new Error('Flight schedule not found');
-    if (!schedule.Flight) throw new Error('Associated flight not found');
+    // Get all affected schedule IDs
+    const affectedScheduleIds = await getWrappedScheduleIds(models, bookedSeat.schedule_id);
 
-    const flight = schedule.Flight;
-    const alreadyBooked = await sumSeats({
-      models,
-      schedule_id: bookedSeat.schedule_id,
-      bookDate: bookedSeat.bookDate,
-      transaction,
-    });
-    const remaining = flight.seat_limit - alreadyBooked;
-    if (remaining < bookedSeat.booked_seat) {
-      throw new Error(
-        `Only ${remaining} seat(s) left on ${bookedSeat.bookDate}. Please reduce passengers.`
-      );
+    // Validate seat availability for all affected schedules
+    for (const scheduleId of affectedScheduleIds) {
+      const schedule = await models.FlightSchedule.findByPk(scheduleId, {
+        include: [{ model: models.Flight }],
+        lock: transaction.LOCK.UPDATE,
+        transaction,
+      });
+      if (!schedule) throw new Error(`Flight schedule ${scheduleId} not found`);
+      if (!schedule.Flight) throw new Error(`Associated flight not found for schedule ${scheduleId}`);
+
+      const alreadyBooked = await sumSeats({
+        models,
+        schedule_id: scheduleId,
+        bookDate: bookedSeat.bookDate,
+        transaction,
+      });
+      const remaining = schedule.Flight.seat_limit - alreadyBooked;
+      if (remaining < bookedSeat.booked_seat) {
+        throw new Error(
+          `Only ${remaining} seat(s) left on ${bookedSeat.bookDate} for schedule ${scheduleId}.`
+        );
+      }
     }
 
-    if (payment.payment_mode === 'RAZORPAY') {
-      const ok = await verifyPayment(
-        payment.payment_id,
-        payment.order_id,
-        payment.razorpay_signature
-      );
-      if (!ok) throw new Error('Payment verification failed');
-    }
+    // Create or update BookedSeat entries for all affected schedules
+    const bookedSeatPromises = affectedScheduleIds.map(async (scheduleId) => {
+      const existingBooking = await models.BookedSeat.findOne({
+        where: {
+          schedule_id: scheduleId,
+          bookDate: bookedSeat.bookDate,
+        },
+        transaction,
+      });
 
-    const newBookedSeat = await models.BookedSeat.create(bookedSeat, { transaction });
+      if (existingBooking) {
+        await existingBooking.update(
+          {
+            booked_seat: existingBooking.booked_seat + bookedSeat.booked_seat,
+          },
+          { transaction }
+        );
+        return existingBooking;
+      } else {
+        return models.BookedSeat.create(
+          {
+            bookDate: bookedSeat.bookDate,
+            schedule_id: scheduleId,
+            booked_seat: bookedSeat.booked_seat,
+          },
+          { transaction }
+        );
+      }
+    });
+
+    const newBookedSeats = await Promise.all(bookedSeatPromises);
+
+    // Create Booking, Billing, Payment, and Passenger records
     const newBooking = await models.Booking.create(
       { ...booking, paymentStatus: 'PENDING', bookingStatus: 'PENDING' },
       { transaction }
     );
     await models.Billing.create(
-      {
-        ...billing,
-        user_id: booking.bookedUserId,
-      },
+      { ...billing, user_id: booking.bookedUserId },
       { transaction }
     );
     await createPaymentUtil({ ...payment, booking_id: newBooking.id }, transaction);
@@ -112,12 +199,38 @@ const completeBooking = async (req, res) => {
 
     await transaction.commit();
 
-    const updatedSeats = remaining - bookedSeat.booked_seat;
+    // Calculate updated seat counts for all affected schedules
+    const updatedSeatCounts = await Promise.all(
+      affectedScheduleIds.map(async (scheduleId) => {
+        const schedule = await models.FlightSchedule.findByPk(scheduleId, {
+          include: [{ model: models.Flight }],
+        });
+        const alreadyBooked = await sumSeats({
+          models,
+          schedule_id: scheduleId,
+          bookDate: bookedSeat.bookDate,
+        });
+        const remaining = schedule.Flight.seat_limit - alreadyBooked;
+        return { schedule_id: scheduleId, bookDate: bookedSeat.bookDate, seatsLeft: remaining };
+      })
+    );
+
+    // Broadcast updated seat counts
+    updatedSeatCounts.forEach(({ schedule_id, bookDate, seatsLeft }) => {
+      window.dispatchEvent(
+        new CustomEvent('seats-updated', {
+          detail: { schedule_id, bookDate, seatsLeft },
+        })
+      );
+    });
+
     res.status(201).json({
       bookingId: newBooking.id,
       schedule_id: bookedSeat.schedule_id,
       bookDate: bookedSeat.bookDate,
-      updatedAvailableSeats: updatedSeats,
+      updatedAvailableSeats: updatedSeatCounts.find(
+        (sc) => sc.schedule_id === bookedSeat.schedule_id
+      ).seatsLeft,
     });
   } catch (err) {
     if (transaction) await transaction.rollback();

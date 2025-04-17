@@ -1,3 +1,5 @@
+
+const { format, toZonedTime } = require('date-fns-tz');
 const getModels = () => require('../model'); // Lazy-load models
 
 function getNextWeekday(weekday) {
@@ -6,32 +8,32 @@ function getNextWeekday(weekday) {
     Wednesday: 3, Thursday: 4,
     Friday: 5, Saturday: 6,
   };
-  const now = new Date();
+  const now = toZonedTime(new Date(), 'Asia/Kolkata');
   const currentDay = now.getDay();
   const targetDay = weekdayMap[weekday];
   let daysToAdd = targetDay - currentDay;
-  if (daysToAdd < 0) daysToAdd += 7;
+  if (daysToAdd <= 0) daysToAdd += 7;
   const nextDate = new Date(now);
   nextDate.setDate(now.getDate() + daysToAdd);
-  return nextDate;
+  return toZonedTime(nextDate, 'Asia/Kolkata');
 }
 
 function combineDateAndTime(dateObj, timeString) {
   const [hours, minutes, seconds] = (timeString || '00:00:00').split(':').map(Number);
-  const dateStr = `${dateObj.toISOString().split('T')[0]}T${timeString || '00:00:00'}+05:30`;
-  return new Date(dateStr);
+  const dateStr = format(dateObj, 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
+  const combined = new Date(`${dateStr}T${timeString || '00:00:00'}+05:30`);
+  return toZonedTime(combined, 'Asia/Kolkata');
 }
 
 async function updateFlightStatuses() {
   const models = getModels();
   try {
-    const now = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
-    const nowIST = new Date(now);
+    const now = toZonedTime(new Date(), 'Asia/Kolkata');
     const flights = await models.Flight.findAll();
     for (const flight of flights) {
       const datePart = getNextWeekday(flight.departure_day);
       const flightDateTime = combineDateAndTime(datePart, flight.departure_time);
-      if (flightDateTime < nowIST && flight.status === 0) {
+      if (flightDateTime < now && flight.status === 0) {
         await flight.update({ status: 1 });
       }
     }
