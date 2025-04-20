@@ -7,7 +7,6 @@ const getBillings = async (req, res) => {
     const billings = await models.Billing.findAll();
     res.json(billings);
   } catch (err) {
-    console.error('Error fetching billings:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -23,7 +22,6 @@ const getBillingById = async (req, res) => {
     }
     res.json(billing);
   } catch (err) {
-    console.error('Error fetching billing:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -57,7 +55,6 @@ const createBilling = async (req, res) => {
     });
     res.status(201).json(newBilling);
   } catch (err) {
-    console.error('Error creating billing:', err);
     res.status(500).json({ error: 'Failed to create billing' });
   }
 };
@@ -96,7 +93,6 @@ const updateBilling = async (req, res) => {
     });
     res.json({ message: 'Billing updated successfully' });
   } catch (err) {
-    console.error('Error updating billing:', err);
     res.status(500).json({ error: 'Failed to update billing' });
   }
 };
@@ -113,7 +109,6 @@ const deleteBilling = async (req, res) => {
     await billing.destroy();
     res.json({ message: 'Billing deleted successfully' });
   } catch (err) {
-    console.error('Error deleting billing:', err);
     res.status(500).json({ error: 'Failed to delete billing' });
   }
 };

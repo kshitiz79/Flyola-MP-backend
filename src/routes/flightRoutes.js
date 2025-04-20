@@ -19,4 +19,7 @@ router.put('/activate-all', flightController.activateAllFlights);
 router.put('/edit-all', flightController.editAllFlights);
 router.delete('/delete-all', flightController.deleteAllFlights);
 
+
+
+
 module.exports = router;

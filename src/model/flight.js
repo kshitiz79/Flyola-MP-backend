@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const sequelize = require('../../db2'); // Updated from ../../db2
+const sequelize = require('../../db2');
 
 const Flight = sequelize.define('Flight', {
   flight_number: {
@@ -42,8 +42,5 @@ const Flight = sequelize.define('Flight', {
   tableName: 'flights',
   timestamps: false,
 });
-
-// Add debugging
-console.log('Flight model defined:', Flight !== undefined);
 
 module.exports = Flight;

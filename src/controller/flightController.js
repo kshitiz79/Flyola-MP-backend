@@ -1,4 +1,3 @@
-
 const { format, toZonedTime } = require('date-fns-tz');
 const getModels = () => require('../model'); // Lazy-load models
 
@@ -25,6 +24,12 @@ function combineDateAndTime(dateObj, timeString) {
   return toZonedTime(combined, 'Asia/Kolkata');
 }
 
+
+
+
+
+
+
 async function updateFlightStatuses() {
   const models = getModels();
   try {
@@ -37,16 +42,13 @@ async function updateFlightStatuses() {
         await flight.update({ status: 1 });
       }
     }
-  } catch (err) {
-    console.error('Error updating flight statuses:', err);
-  }
+  } catch (err) {}
 }
 
 setInterval(updateFlightStatuses, 10 * 60 * 1000);
 
 const getFlights = async (req, res) => {
   const models = getModels();
-  console.log('FlightController models:', models.Flight ? 'Defined' : 'Undefined');
   try {
     await updateFlightStatuses();
     const isUserRequest = req.query.user === 'true';
@@ -54,7 +56,6 @@ const getFlights = async (req, res) => {
     const flights = await models.Flight.findAll({ where: whereClause });
     res.json(flights);
   } catch (err) {
-    console.error('Error fetching flights:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -74,7 +75,6 @@ const addFlight = async (req, res) => {
     });
     res.status(201).json({ message: 'Flight added successfully', id: newFlight.id });
   } catch (err) {
-    console.error('Error adding flight:', err);
     res.status(500).json({ error: 'Failed to add flight' });
   }
 };
@@ -97,7 +97,6 @@ const updateFlight = async (req, res) => {
     });
     res.json({ message: 'Flight updated successfully' });
   } catch (err) {
-    console.error('Error updating flight:', err);
     res.status(500).json({ error: 'Failed to update flight' });
   }
 };
@@ -114,16 +113,6 @@ const deleteFlight = async (req, res) => {
     res.json({ message: 'Flight deleted successfully' });
   } catch (err) {
     console.error('Error deleting flight:', err);
-    if (err.name === 'SequelizeForeignKeyConstraintError') {
-      return res.status(400).json({
-        error: 'Cannot delete flight due to existing dependencies (e.g., bookings).',
-      });
-    }
-    if (err.name === 'SequelizeDatabaseError') {
-      return res.status(500).json({
-        error: `Database error: ${err.message}`,
-      });
-    }
     res.status(500).json({ error: `Failed to delete flight: ${err.message}` });
   }
 };
@@ -134,7 +123,6 @@ const activateAllFlights = async (req, res) => {
     await models.Flight.update({ status: 1 }, { where: {} });
     res.json({ message: 'All flights activated successfully' });
   } catch (err) {
-    console.error('Error activating all flights:', err);
     res.status(500).json({ error: 'Failed to activate all flights' });
   }
 };
@@ -147,7 +135,6 @@ const editAllFlights = async (req, res) => {
     await models.Flight.update({ seat_limit: parseInt(seat_limit) }, { where: {} });
     res.json({ message: 'All flights updated successfully' });
   } catch (err) {
-    console.error('Error editing all flights:', err);
     res.status(500).json({ error: 'Failed to edit all flights' });
   }
 };
@@ -158,10 +145,21 @@ const deleteAllFlights = async (req, res) => {
     await models.Flight.destroy({ where: {} });
     res.json({ message: 'All flights deleted successfully' });
   } catch (err) {
-    console.error('Error deleting all flights:', err);
     res.status(500).json({ error: 'Failed to delete all flights' });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
 
 module.exports = {
   getFlights,

@@ -3,10 +3,9 @@ const models = require('./../model'); // Import the models object
 // Get all airports
 const getAirports = async (req, res) => {
   try {
-    const airports = await models.Airport.findAll(); // Use models.Airport
+    const airports = await models.Airport.findAll();
     res.json(airports);
   } catch (err) {
-    console.error('Error fetching airports:', err);
     res.status(500).json({ error: 'Database query failed' });
   }
 };
@@ -24,7 +23,6 @@ const addAirport = async (req, res) => {
       airport: airport,
     });
   } catch (err) {
-    console.error('Error adding airport:', err);
     res.status(500).json({ error: 'Failed to add airport' });
   }
 };
@@ -47,7 +45,6 @@ const updateAirport = async (req, res) => {
     await airport.save();
     res.json({ message: 'Airport updated successfully', airport });
   } catch (err) {
-    console.error('Error updating airport:', err);
     res.status(500).json({ error: 'Failed to update airport' });
   }
 };
@@ -63,7 +60,6 @@ const deleteAirport = async (req, res) => {
     await airport.destroy();
     res.json({ message: 'Airport deleted successfully' });
   } catch (err) {
-    console.error('Error deleting airport:', err);
     res.status(500).json({ error: 'Failed to delete airport' });
   }
 };

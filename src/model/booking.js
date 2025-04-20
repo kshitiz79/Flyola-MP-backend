@@ -1,4 +1,3 @@
-// src/model/booking.js
 const { DataTypes } = require('sequelize');
 const sequelize = require('../../db2');
 
@@ -36,8 +35,8 @@ const Booking = sequelize.define(
       allowNull: false,
     },
     schedule_id: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
+      type: DataTypes.INTEGER, // Changed to INTEGER and allowNull: true
+      allowNull: true,
     },
     totalFare: {
       type: DataTypes.DECIMAL(10, 2),
@@ -97,7 +96,11 @@ const Booking = sequelize.define(
 );
 
 Booking.associate = (models) => {
-  Booking.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id', targetKey: 'id' });
+  Booking.belongsTo(models.FlightSchedule, {
+    foreignKey: 'schedule_id',
+    targetKey: 'id',
+    onDelete: 'SET NULL', // Add onDelete behavior
+  });
   Booking.hasMany(models.Payment, { foreignKey: 'booking_id', sourceKey: 'id' });
   Booking.belongsTo(models.User, { foreignKey: 'bookedUserId', targetKey: 'id' });
   Booking.hasMany(models.Passenger, { foreignKey: 'bookingId', sourceKey: 'id' });

@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const sequelize = require('./../../db2'); 
+const sequelize = require('./../../db2');
 
 const BookedSeat = sequelize.define(
   'BookedSeat',
@@ -36,7 +36,14 @@ const BookedSeat = sequelize.define(
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
+    indexes: [
+      {
+        unique: true,
+        fields: ['schedule_id', 'bookDate'],
+        name: 'unique_schedule_bookDate',
+      },
+    ],
   }
 );
 
-module.exports = BookedSeat; // 确保正确导出 BookedSeat 模型
+module.exports = BookedSeat;
