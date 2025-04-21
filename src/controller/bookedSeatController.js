@@ -1,40 +1,65 @@
+const { Op } = require('sequelize');
+const dayjs = require('dayjs');
 const { sumSeats } = require('../utils/seatUtils');
+const { getRouteAirports } = require('./flightController');
+
 const getModels = () => require('../model');
 
-async function getWrappedScheduleIds(models, schedule_id) {
+
+async function getWrappedScheduleIds(schedule_id) {
+  const models = getModels();
   const schedule = await models.FlightSchedule.findByPk(schedule_id, {
     include: [{ model: models.Flight }],
   });
-  if (!schedule) throw new Error('Schedule not found');
-
-  const flight = schedule.Flight;
-  const routeAirports = flight.airport_stop_ids
-    ? JSON.parse(flight.airport_stop_ids)
-    : [flight.start_airport_id, flight.end_airport_id];
-
-  // For single-segment bookings, only return the booked schedule ID
-  const segmentStartIndex = routeAirports.indexOf(schedule.departure_airport_id);
-  const segmentEndIndex = routeAirports.indexOf(schedule.arrival_airport_id);
-  if (segmentStartIndex + 1 === segmentEndIndex) {
-    // Direct flight (no stopovers), only include the booked schedule
-    return [schedule_id];
+  if (!schedule || !schedule.Flight) {
+    throw new Error('Schedule or associated Flight not found');
   }
 
-  // For multi-segment flights, include overlapping schedules
-  const allSchedules = await models.FlightSchedule.findAll({
+  const flight = schedule.Flight;
+  const route = getRouteAirports({
+    start_airport_id: flight.start_airport_id,
+    end_airport_id: flight.end_airport_id,
+    airport_stop_ids: flight.airport_stop_ids,
+  });
+
+  const depIdx = route.indexOf(schedule.departure_airport_id);
+  const arrIdx = route.indexOf(schedule.arrival_airport_id);
+  if (depIdx === -1 || arrIdx === -1 || depIdx >= arrIdx) {
+    throw new Error(
+      `Invalid segment for schedule ${schedule_id}: indices ${depIdx}-${arrIdx} on route ${route.join('→')}`
+    );
+  }
+
+  /* All schedules of this flight */
+  const schedules = await models.FlightSchedule.findAll({
     where: { flight_id: flight.id },
+    attributes: ['id', 'departure_airport_id', 'arrival_airport_id'],
   });
 
-  const affectedSchedules = allSchedules.filter((s) => {
-    const startIndex = routeAirports.indexOf(s.departure_airport_id);
-    const endIndex = routeAirports.indexOf(s.arrival_airport_id);
-    return startIndex <= segmentStartIndex && endIndex >= segmentEndIndex;
-  });
+  /* Pick those whose leg *starts no later* than ours and
+     *ends no earlier* than ours (i.e., fully wrap our slice). */
+  const ids = schedules
+    .filter((s) => {
+      const sDep = route.indexOf(s.departure_airport_id);
+      const sArr = route.indexOf(s.arrival_airport_id);
+      return (
+        sDep !== -1 &&
+        sArr !== -1 &&
+        sDep <= depIdx && // starts same or earlier
+        sArr >= arrIdx && // ends same or later
+        sDep < sArr // sanity: forward leg
+      );
+    })
+    .map((s) => s.id);
 
-  return affectedSchedules.map((s) => s.id);
+  return Array.from(new Set(ids)); // de-duplicate for safety
 }
 
-async function getBookedSeats(req, res) {
+/* ------------------------------------------------------------------ */
+/* Controllers                                                        */
+/* ------------------------------------------------------------------ */
+
+exports.getBookedSeats = async (req, res) => {
   const models = getModels();
   try {
     const rows = await models.BookedSeat.findAll({
@@ -42,11 +67,12 @@ async function getBookedSeats(req, res) {
     });
     res.json(rows);
   } catch (err) {
+    console.error('Error fetching booked seats:', err);
     res.status(500).json({ error: 'Server error' });
   }
-}
+};
 
-async function getBookedSeatById(req, res) {
+exports.getBookedSeatById = async (req, res) => {
   const models = getModels();
   try {
     const row = await models.BookedSeat.findByPk(req.params.id, {
@@ -55,257 +81,300 @@ async function getBookedSeatById(req, res) {
     if (!row) return res.status(404).json({ error: 'Booked seat not found' });
     res.json(row);
   } catch (err) {
+    console.error('Error fetching booked seat by ID:', err);
     res.status(500).json({ error: 'Server error' });
   }
-}
+};
 
-async function createBookedSeat(req, res) {
+/* ------------------------------------------------------------------ */
+/* CREATE                                                             */
+/* ------------------------------------------------------------------ */
+exports.createBookedSeat = async (req, res) => {
   const models = getModels();
   const { bookDate, schedule_id, booked_seat } = req.body;
 
-  if (!bookDate || !schedule_id || !booked_seat || booked_seat <= 0) {
-    return res
-      .status(400)
-      .json({ error: 'bookDate, schedule_id, and booked_seat are required' });
+  /* Validation */
+  if (!bookDate || !schedule_id || !booked_seat) {
+    return res.status(400).json({ error: 'bookDate, schedule_id, and booked_seat are required' });
+  }
+  if (!Number.isInteger(booked_seat) || booked_seat <= 0) {
+    return res.status(400).json({ error: 'booked_seat must be a positive integer' });
+  }
+  if (!dayjs(bookDate, 'YYYY-MM-DD', true).isValid()) {
+    return res.status(400).json({ error: 'Invalid bookDate format (YYYY-MM-DD expected)' });
   }
 
   const tx = await models.sequelize.transaction();
   try {
-    const affectedScheduleIds = await getWrappedScheduleIds(models, schedule_id);
+    /* Verify schedule exists */
+    const schedule = await models.FlightSchedule.findByPk(schedule_id, { transaction: tx });
+    if (!schedule) throw new Error('Schedule not found');
 
-    for (const scheduleId of affectedScheduleIds) {
-      const schedule = await models.FlightSchedule.findByPk(scheduleId, {
-        include: [{ model: models.Flight }],
-        lock: tx.LOCK.UPDATE,
-        transaction: tx,
-      });
-      if (!schedule) throw new Error(`Schedule ${scheduleId} not found`);
+    /* Which schedules wrap this leg? */
+    const affectedIds = await getWrappedScheduleIds(schedule_id);
 
-      const seatsLeft = await sumSeats({
-        models,
-        schedule_id: scheduleId,
-        bookDate,
-        transaction: tx,
-      });
+    /* Check seat availability on each of them */
+    for (const sid of affectedIds) {
+      const seatsLeft = await sumSeats({ models, schedule_id: sid, bookDate, transaction: tx });
       if (seatsLeft < booked_seat) {
-        throw new Error(`Only ${seatsLeft} seat(s) left on ${bookDate} for schedule ${scheduleId}`);
+        throw new Error(`Only ${seatsLeft} seat(s) left on ${bookDate} for schedule ${sid}`);
       }
     }
 
-    const bookedSeatPromises = affectedScheduleIds.map(async (scheduleId) => {
-      const existingBooking = await models.BookedSeat.findOne({
-        where: { schedule_id: scheduleId, bookDate },
+    /* Upsert BookedSeat rows per affected schedule */
+    const upserts = affectedIds.map(async (sid) => {
+      const [row, created] = await models.BookedSeat.findOrCreate({
+        where: { schedule_id: sid, bookDate },
+        defaults: { booked_seat },
         transaction: tx,
+        lock: tx.LOCK.UPDATE,
       });
-
-      if (existingBooking) {
-        await existingBooking.update(
-          { booked_seat: existingBooking.booked_seat + booked_seat },
-          { transaction: tx }
-        );
-        return existingBooking;
-      } else {
-        return models.BookedSeat.create(
-          { bookDate, schedule_id: scheduleId, booked_seat },
-          { transaction: tx }
-        );
-      }
+      if (!created) await row.increment({ booked_seat }, { transaction: tx });
+      return row;
     });
 
-    const newBookedSeats = await Promise.all(bookedSeatPromises);
-    const primaryBookedSeat = newBookedSeats.find((bs) => bs.schedule_id === schedule_id);
+    const rows = await Promise.all(upserts);
+    const primary = rows.find((r) => r.schedule_id === schedule_id);
 
     await tx.commit();
 
-    const updatedSeatCounts = await Promise.all(
-      affectedScheduleIds.map(async (scheduleId) => {
-        const schedule = await models.FlightSchedule.findByPk(scheduleId, {
-          include: [{ model: models.Flight }],
-        });
-        const seatsLeft = await sumSeats({
-          models,
-          schedule_id: scheduleId,
-          bookDate,
-          transaction: null,
-        });
-        return { schedule_id: scheduleId, bookDate, seatsLeft };
-      })
+    /* Re-compute availability for front-end push / response */
+    const updates = await Promise.all(
+      affectedIds.map(async (sid) => ({
+        id: sid,
+        availableSeats: await sumSeats({ models, schedule_id: sid, bookDate }),
+      }))
     );
 
-    updatedSeatCounts.forEach(({ schedule_id, bookDate, seatsLeft }) => {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('seats-updated', {
-            detail: { schedule_id, bookDate, seatsLeft },
-          })
-        );
-      }
-    });
+    if (req.io) req.io.emit('seats-updated', { updates });
 
     res.status(201).json({
-      ...primaryBookedSeat.toJSON(),
-      updatedAvailableSeats: updatedSeatCounts.find(
-        (sc) => sc.schedule_id === schedule_id
-      ).seatsLeft,
+      ...primary.toJSON(),
+      updatedAvailableSeats: updates.find((u) => u.id === schedule_id).availableSeats,
+      affectedSchedules: updates.map((u) => ({
+        schedule_id: u.id,
+        bookDate,
+        seatsLeft: u.availableSeats,
+      })),
     });
   } catch (err) {
     await tx.rollback();
+    console.error('Error creating booked seat:', err);
     res.status(400).json({ error: err.message });
   }
-}
+};
 
-async function updateBookedSeat(req, res) {
+/* ------------------------------------------------------------------ */
+/* UPDATE                                                             */
+/* ------------------------------------------------------------------ */
+exports.updateBookedSeat = async (req, res) => {
+ 
   const models = getModels();
   const { id } = req.params;
   const { bookDate, schedule_id, booked_seat } = req.body;
 
-  if (!bookDate || !schedule_id || !booked_seat || booked_seat <= 0) {
-    return res
-      .status(400)
-      .json({ error: 'bookDate, schedule_id, and booked_seat are required' });
+  // Validate input
+  if (!bookDate || !schedule_id || !booked_seat) {
+    return res.status(400).json({ error: 'bookDate, schedule_id, and booked_seat are required' });
+  }
+  if (!Number.isInteger(booked_seat) || booked_seat <= 0) {
+    return res.status(400).json({ error: 'booked_seat must be a positive integer' });
+  }
+  if (!dayjs(bookDate, 'YYYY-MM-DD', true).isValid()) {
+    return res.status(400).json({ error: 'Invalid bookDate format (expected YYYY-MM-DD)' });
   }
 
-  const tx = await models.sequelize.transaction();
+  const transaction = await models.sequelize.transaction();
   try {
-    const row = await models.BookedSeat.findByPk(id, { transaction: tx });
-    if (!row) throw new Error('Booked seat not found');
+    // Find the existing booked seat
+    const row = await models.BookedSeat.findByPk(id, { transaction });
+    if (!row) {
+      throw new Error('Booked seat not found');
+    }
+
+    // Verify new schedule exists
+    const schedule = await models.FlightSchedule.findByPk(schedule_id, { transaction });
+    if (!schedule) {
+      throw new Error('Schedule not found');
+    }
 
     const oldScheduleId = row.schedule_id;
     const oldBookDate = row.bookDate;
     const oldBookedSeat = row.booked_seat;
 
-    const affectedScheduleIds = await getWrappedScheduleIds(models, schedule_id);
-    const oldAffectedScheduleIds = oldScheduleId === schedule_id && oldBookDate === bookDate
-      ? affectedScheduleIds
-      : await getWrappedScheduleIds(models, oldScheduleId);
+    // Get affected schedules for old and new bookings
+    const affectedScheduleIds = await getWrappedScheduleIds(schedule_id);
+    const oldAffectedScheduleIds =
+      oldScheduleId === schedule_id && oldBookDate === bookDate
+        ? affectedScheduleIds
+        : await getWrappedScheduleIds(oldScheduleId);
 
-    if (
-      row.bookDate !== bookDate ||
-      row.schedule_id !== schedule_id ||
-      row.booked_seat !== booked_seat
-    ) {
-      for (const scheduleId of affectedScheduleIds) {
-        const schedule = await models.FlightSchedule.findByPk(scheduleId, {
-          include: [{ model: models.Flight }],
-          lock: tx.LOCK.UPDATE,
-          transaction: tx,
-        });
-        if (!schedule) throw new Error(`Schedule ${scheduleId} not found`);
-
-        const seatsLeft = await sumSeats({
-          models,
-          schedule_id: scheduleId,
-          bookDate,
-          transaction: tx,
-        });
-        const adjustment = scheduleId === oldScheduleId && bookDate === oldBookDate
-          ? oldBookedSeat
-          : 0;
-        if (seatsLeft - adjustment < booked_seat) {
-          throw new Error(`Only ${seatsLeft} seat(s) left on ${bookDate} for schedule ${scheduleId}`);
-        }
+    // Check seat availability for new booking
+    for (const scheduleId of affectedScheduleIds) {
+      const seatsLeft = await sumSeats({
+        models,
+        schedule_id: scheduleId,
+        bookDate,
+        transaction,
+      });
+      const adjustment = scheduleId === oldScheduleId && bookDate === oldBookDate ? oldBookedSeat : 0;
+      if (seatsLeft + adjustment < booked_seat) {
+        throw new Error(`Only ${seatsLeft + adjustment} seat(s) left on ${bookDate} for schedule ${scheduleId}`);
       }
     }
 
+    // Update or create new bookings
     const bookedSeatPromises = affectedScheduleIds.map(async (scheduleId) => {
-      const existingBooking = await models.BookedSeat.findOne({
+      const [existingBooking, created] = await models.BookedSeat.findOrCreate({
         where: { schedule_id: scheduleId, bookDate },
-        transaction: tx,
+        defaults: { booked_seat },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
       });
-
-      if (existingBooking) {
-        const adjustment = scheduleId === oldScheduleId && bookDate === oldBookDate
-          ? oldBookedSeat
-          : 0;
+      if (!created) {
+        const adjustment = scheduleId === oldScheduleId && bookDate === oldBookDate ? oldBookedSeat : 0;
         await existingBooking.update(
           { booked_seat: existingBooking.booked_seat - adjustment + booked_seat },
-          { transaction: tx }
-        );
-        return existingBooking;
-      } else {
-        return models.BookedSeat.create(
-          { bookDate, schedule_id: scheduleId, booked_seat },
-          { transaction: tx }
+          { transaction }
         );
       }
+      return existingBooking;
     });
 
     await Promise.all(bookedSeatPromises);
 
+    // Clean up old bookings if schedule_id or bookDate changed
     if (oldScheduleId !== schedule_id || oldBookDate !== bookDate) {
       const cleanupPromises = oldAffectedScheduleIds.map(async (scheduleId) => {
         const existingBooking = await models.BookedSeat.findOne({
           where: { schedule_id: scheduleId, bookDate: oldBookDate },
-          transaction: tx,
+          transaction,
         });
         if (existingBooking) {
           const newBookedSeat = existingBooking.booked_seat - oldBookedSeat;
           if (newBookedSeat <= 0) {
-            await existingBooking.destroy({ transaction: tx });
+            await existingBooking.destroy({ transaction });
           } else {
-            await existingBooking.update(
-              { booked_seat: newBookedSeat },
-              { transaction: tx }
-            );
+            await existingBooking.update({ booked_seat: newBookedSeat }, { transaction });
           }
         }
       });
       await Promise.all(cleanupPromises);
     }
 
-    await tx.commit();
+    await transaction.commit();
 
-    const updatedSeatCounts = await Promise.all(
-      affectedScheduleIds.map(async (scheduleId) => {
-        const schedule = await models.FlightSchedule.findByPk(scheduleId, {
-          include: [{ model: models.Flight }],
-        });
-        const seatsLeft = await sumSeats({
+    // Calculate updated seat counts for response and WebSocket
+    const updates = await Promise.all(
+      affectedScheduleIds.map(async (scheduleId) => ({
+        id: scheduleId,
+        availableSeats: await sumSeats({
           models,
           schedule_id: scheduleId,
           bookDate,
           transaction: null,
-        });
-        return { schedule_id: scheduleId, bookDate, seatsLeft };
-      })
+        }),
+      }))
     );
 
-    updatedSeatCounts.forEach(({ schedule_id, bookDate, seatsLeft }) => {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('seats-updated', {
-            detail: { schedule_id, bookDate, seatsLeft },
-          })
-        );
+    // Emit WebSocket event for real-time updates
+    if (req.io) {
+      req.io.emit('seats-updated', { updates });
+    } else {
+      console.warn('WebSocket (req.io) not available, skipping seats-updated event');
+    }
+
+    res.json({
+      message: 'Booked seat updated successfully',
+      updatedAvailableSeats: updates.find((sc) => sc.id === schedule_id).availableSeats,
+      affectedSchedules: updates.map((sc) => ({
+        schedule_id: sc.id,
+        bookDate,
+        seatsLeft: sc.availableSeats,
+      })),
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error('Error updating booked seat:', err);
+    res.status(400).json({ error: err.message });
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* DELETE                                                             */
+/* ------------------------------------------------------------------ */
+exports.deleteBookedSeat = async (req, res) => {
+  const models = getModels();
+  const { id } = req.params;
+
+  const transaction = await models.sequelize.transaction();
+  try {
+    const row = await models.BookedSeat.findByPk(id, { transaction });
+    if (!row) {
+      throw new Error('Booked seat not found');
+    }
+
+    const schedule_id = row.schedule_id;
+    const bookDate = row.bookDate;
+    const booked_seat = row.booked_seat;
+
+    // Get all schedules that cover this segment
+    const affectedScheduleIds = await getWrappedScheduleIds(schedule_id);
+
+    // Update or delete affected bookings
+    const cleanupPromises = affectedScheduleIds.map(async (scheduleId) => {
+      const existingBooking = await models.BookedSeat.findOne({
+        where: { schedule_id: scheduleId, bookDate },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (existingBooking) {
+        const newBookedSeat = existingBooking.booked_seat - booked_seat;
+        if (newBookedSeat <= 0) {
+          await existingBooking.destroy({ transaction });
+        } else {
+          await existingBooking.update({ booked_seat: newBookedSeat }, { transaction });
+        }
       }
     });
 
-    res.json({ message: 'Booked seat updated', row });
+    await Promise.all(cleanupPromises);
+
+    await transaction.commit();
+
+    // Calculate updated seat counts for response and WebSocket
+    const updates = await Promise.all(
+      affectedScheduleIds.map(async (scheduleId) => ({
+        id: scheduleId,
+        availableSeats: await sumSeats({
+          models,
+          schedule_id: scheduleId,
+          bookDate,
+          transaction: null,
+        }),
+      }))
+    );
+
+    // Emit WebSocket event for real-time updates
+    if (req.io) {
+      req.io.emit('seats-updated', { updates });
+    } else {
+      console.warn('WebSocket (req.io) not available, skipping seats-updated event');
+    }
+
+    res.json({
+      message: 'Booked seat deleted successfully',
+      affectedSchedules: updates.map((sc) => ({
+        schedule_id: sc.id,
+        bookDate,
+        seatsLeft: sc.availableSeats,
+      })),
+    });
   } catch (err) {
-    await tx.rollback();
+    await transaction.rollback();
+    console.error('Error deleting booked seat:', err);
     res.status(400).json({ error: err.message });
   }
-}
-
-async function deleteBookedSeat(req, res) {
-  const models = getModels();
-  const tx = await models.sequelize.transaction();
-  try {
-    const row = await models.BookedSeat.findByPk(req.params.id, { transaction: tx });
-    if (!row) throw new Error('Booked seat not found');
-    await row.destroy({ transaction: tx });
-    await tx.commit();
-    res.json({ message: 'Booked seat deleted' });
-  } catch (err) {
-    await tx.rollback();
-    res.status(400).json({ error: err.message });
-  }
-}
-
-module.exports = {
-  getBookedSeats,
-  getBookedSeatById,
-  createBookedSeat,
-  updateBookedSeat,
-  deleteBookedSeat,
 };
+
+module.exports = exports;

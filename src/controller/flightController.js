@@ -1,11 +1,102 @@
+// controller/flightController.js
 const { format, toZonedTime } = require('date-fns-tz');
-const getModels = () => require('../model'); // Lazy-load models
+const { Op } = require('sequelize');
+const getModels = () => require('../model');
+const validateIdsExist = require('../utils/validateIdsExist');
 
+/**
+ * Return the full airport chain for a flight: [start, ...stops..., end]
+ * @param {Object} flight - Flight object with start_airport_id, end_airport_id, airport_stop_ids
+ * @returns {number[]} Array of airport IDs
+ */
+function getRouteAirports({ start_airport_id, end_airport_id, airport_stop_ids }) {
+  let stopsRaw = [];
+  try {
+    stopsRaw = Array.isArray(airport_stop_ids)
+      ? airport_stop_ids
+      : JSON.parse(airport_stop_ids || '[]');
+  } catch {
+    /* corrupt JSON → ignore stops */
+    stopsRaw = [];
+  }
+
+  const cleaned = [];
+  const seen    = new Set([start_airport_id, end_airport_id]);   // never include start/end twice
+  for (const id of stopsRaw) {
+    if (!Number.isInteger(id) || id <= 0) continue;              // skip invalid
+    if (seen.has(id))               continue;                    // skip duplicates / start / end
+    cleaned.push(id);
+    seen.add(id);
+  }
+
+  return [start_airport_id, ...cleaned, end_airport_id];
+}
+exports.getRouteAirports = getRouteAirports;
+/** ---------- VALIDATION ---------- */
+async function validateFlightBody(body, isUpdate = false, flightId = null) {
+  const {
+    flight_number,
+    start_airport_id,
+    end_airport_id,
+    airport_stop_ids = [],
+    seat_limit,
+    departure_day,
+    status,
+  } = body;
+
+  if (!isUpdate) {
+    if (!flight_number) throw new Error('flight_number is required');
+    if (!start_airport_id || !end_airport_id) throw new Error('start_airport_id & end_airport_id are required');
+    if (!departure_day) throw new Error('departure_day is required');
+  }
+  if (start_airport_id === end_airport_id) {
+    throw new Error('start_airport_id and end_airport_id must differ');
+  }
+
+  const stops = Array.isArray(airport_stop_ids) ? airport_stop_ids : JSON.parse(airport_stop_ids || '[]');
+
+  // Validate IDs
+  const badId = stops.find(id => !Number.isInteger(id) || id <= 0);
+  if (badId) throw new Error(`Invalid stop id: ${badId}`);
+  if (new Set(stops).size !== stops.length) {
+    throw new Error('airport_stop_ids contains duplicates');
+  }
+  if (stops.includes(start_airport_id) || stops.includes(end_airport_id)) {
+    throw new Error('Stops cannot include start or end airport');
+  }
+
+  // Check airport existence
+  await validateIdsExist(getModels().Airport, [...stops, start_airport_id, end_airport_id]);
+
+  // Check flight_number uniqueness
+  if (flight_number) {
+    const dup = await getModels().Flight.findOne({
+      where: {
+        flight_number,
+        ...(isUpdate && { id: { [Op.ne]: flightId } }),
+      },
+    });
+    if (dup) throw new Error(`flight_number ${flight_number} already exists`);
+  }
+
+  // Validate seat_limit
+  if (seat_limit !== undefined && (!Number.isInteger(seat_limit) || seat_limit < 1)) {
+    throw new Error('seat_limit must be a positive integer');
+  }
+
+  // Validate departure_day
+  const validDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  if (departure_day && !validDays.includes(departure_day)) {
+    throw new Error('departure_day must be a valid day of the week');
+  }
+
+  return { stops };
+}
+
+/** ---------- HELPER FUNCTIONS ---------- */
 function getNextWeekday(weekday) {
   const weekdayMap = {
-    Sunday: 0, Monday: 1, Tuesday: 2,
-    Wednesday: 3, Thursday: 4,
-    Friday: 5, Saturday: 6,
+    Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6,
   };
   const now = toZonedTime(new Date(), 'Asia/Kolkata');
   const currentDay = now.getDay();
@@ -24,12 +115,6 @@ function combineDateAndTime(dateObj, timeString) {
   return toZonedTime(combined, 'Asia/Kolkata');
 }
 
-
-
-
-
-
-
 async function updateFlightStatuses() {
   const models = getModels();
   try {
@@ -42,12 +127,16 @@ async function updateFlightStatuses() {
         await flight.update({ status: 1 });
       }
     }
-  } catch (err) {}
+  } catch (err) {
+    console.error('Error updating flight statuses:', err);
+  }
 }
 
+// Run every 10 minutes
 setInterval(updateFlightStatuses, 10 * 60 * 1000);
 
-const getFlights = async (req, res) => {
+/** ---------- CONTROLLERS ---------- */
+exports.getFlights = async (req, res) => {
   const models = getModels();
   try {
     await updateFlightStatuses();
@@ -60,64 +149,48 @@ const getFlights = async (req, res) => {
   }
 };
 
-const addFlight = async (req, res) => {
+exports.addFlight = async (req, res) => {
   const models = getModels();
-  const { flight_number, departure_day, start_airport_id, end_airport_id, airport_stop_ids, seat_limit, status } = req.body;
   try {
+    const { stops } = await validateFlightBody(req.body);
     const newFlight = await models.Flight.create({
-      flight_number,
-      departure_day,
-      start_airport_id,
-      end_airport_id,
-      airport_stop_ids,
-      seat_limit,
-      status,
+      ...req.body,
+      airport_stop_ids: stops, // Store as array
     });
     res.status(201).json({ message: 'Flight added successfully', id: newFlight.id });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to add flight' });
+    res.status(400).json({ error: err.message });
   }
 };
 
-const updateFlight = async (req, res) => {
+exports.updateFlight = async (req, res) => {
   const models = getModels();
-  const { id } = req.params;
-  const { flight_number, departure_day, start_airport_id, end_airport_id, airport_stop_ids, seat_limit, status } = req.body;
   try {
-    const flight = await models.Flight.findByPk(id);
+    const flight = await models.Flight.findByPk(req.params.id);
     if (!flight) return res.status(404).json({ error: 'Flight not found' });
-    await flight.update({
-      flight_number,
-      departure_day,
-      start_airport_id,
-      end_airport_id,
-      airport_stop_ids,
-      seat_limit,
-      status,
-    });
-    res.json({ message: 'Flight updated successfully' });
+
+    const { stops } = await validateFlightBody(req.body, true, flight.id);
+    await flight.update({ ...req.body, airport_stop_ids: stops });
+
+    res.json({ message: 'Flight updated successfully', flight });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to update flight' });
+    res.status(400).json({ error: err.message });
   }
 };
 
-const deleteFlight = async (req, res) => {
+exports.deleteFlight = async (req, res) => {
   const models = getModels();
-  const { id } = req.params;
   try {
-    const flight = await models.Flight.findByPk(id);
-    if (!flight) {
-      return res.status(404).json({ error: 'Flight not found' });
-    }
+    const flight = await models.Flight.findByPk(req.params.id);
+    if (!flight) return res.status(404).json({ error: 'Flight not found' });
     await flight.destroy();
     res.json({ message: 'Flight deleted successfully' });
   } catch (err) {
-    console.error('Error deleting flight:', err);
     res.status(500).json({ error: `Failed to delete flight: ${err.message}` });
   }
 };
 
-const activateAllFlights = async (req, res) => {
+exports.activateAllFlights = async (req, res) => {
   const models = getModels();
   try {
     await models.Flight.update({ status: 1 }, { where: {} });
@@ -127,10 +200,12 @@ const activateAllFlights = async (req, res) => {
   }
 };
 
-const editAllFlights = async (req, res) => {
+exports.editAllFlights = async (req, res) => {
   const models = getModels();
   const { seat_limit } = req.body;
-  if (!seat_limit || isNaN(seat_limit)) return res.status(400).json({ error: 'Invalid seat limit value' });
+  if (!seat_limit || isNaN(seat_limit) || seat_limit < 1) {
+    return res.status(400).json({ error: 'Invalid seat limit value' });
+  }
   try {
     await models.Flight.update({ seat_limit: parseInt(seat_limit) }, { where: {} });
     res.json({ message: 'All flights updated successfully' });
@@ -139,7 +214,7 @@ const editAllFlights = async (req, res) => {
   }
 };
 
-const deleteAllFlights = async (req, res) => {
+exports.deleteAllFlights = async (req, res) => {
   const models = getModels();
   try {
     await models.Flight.destroy({ where: {} });
@@ -147,26 +222,4 @@ const deleteAllFlights = async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete all flights' });
   }
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-module.exports = {
-  getFlights,
-  addFlight,
-  updateFlight,
-  deleteFlight,
-  activateAllFlights,
-  editAllFlights,
-  deleteAllFlights,
 };

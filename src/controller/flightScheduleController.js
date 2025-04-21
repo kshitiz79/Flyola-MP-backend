@@ -10,10 +10,12 @@ async function getFlightSchedules(req, res) {
 
   try {
     const where = isUserRequest ? { status: 1 } : {};
+    console.log(`getFlightSchedules - Query: isUserRequest=${isUserRequest}, month=${monthQuery}, where=${JSON.stringify(where)}`);
     const rows = await models.FlightSchedule.findAll({
       where,
       include: [{ model: models.Flight }],
     });
+    console.log(`getFlightSchedules - Found ${rows.length} schedules`);
 
     let output = [];
     if (monthQuery) {
@@ -27,19 +29,31 @@ async function getFlightSchedules(req, res) {
 
         for (const r of rows) {
           const flight = r.Flight;
+          if (!flight) {
+            console.warn(`getFlightSchedules - Missing Flight for schedule ${r.id}, flight_id=${r.flight_id}`);
+            continue;
+          }
           if (flight.departure_day === weekday) {
             let viaStopIds = [];
             try {
               viaStopIds = r.via_stop_id ? JSON.parse(r.via_stop_id) : [];
               viaStopIds = viaStopIds.filter(id => id && Number.isInteger(id) && id !== 0);
-            } catch (e) {}
+            } catch (e) {
+              console.warn(`getFlightSchedules - Invalid via_stop_id for schedule ${r.id}: ${r.via_stop_id}`);
+            }
 
-            const availableSeats = await sumSeats({
-              models,
-              schedule_id: r.id,
-              bookDate: currentDate,
-              transaction: null,
-            });
+            let availableSeats;
+            try {
+              availableSeats = await sumSeats({
+                models,
+                schedule_id: r.id,
+                bookDate: currentDate,
+                transaction: null,
+              });
+            } catch (e) {
+              console.error(`getFlightSchedules - sumSeats failed for schedule ${r.id}, date=${currentDate}: ${e.message}`);
+              availableSeats = 0;
+            }
 
             output.push({
               ...r.toJSON(),
@@ -54,18 +68,31 @@ async function getFlightSchedules(req, res) {
       const bookDate = req.query.date || format(new Date(), 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
       output = await Promise.all(
         rows.map(async (r) => {
+          const flight = r.Flight;
+          if (!flight) {
+            console.warn(`getFlightSchedules - Missing Flight for schedule ${r.id}, flight_id=${r.flight_id}`);
+            return null;
+          }
           let viaStopIds = [];
           try {
             viaStopIds = r.via_stop_id ? JSON.parse(r.via_stop_id) : [];
             viaStopIds = viaStopIds.filter(id => id && Number.isInteger(id) && id !== 0);
-          } catch (e) {}
+          } catch (e) {
+            console.warn(`getFlightSchedules - Invalid via_stop_id for schedule ${r.id}: ${r.via_stop_id}`);
+          }
 
-          const availableSeats = await sumSeats({
-            models,
-            schedule_id: r.id,
-            bookDate,
-            transaction: null,
-          });
+          let availableSeats;
+          try {
+            availableSeats = await sumSeats({
+              models,
+              schedule_id: r.id,
+              bookDate,
+              transaction: null,
+            });
+          } catch (e) {
+            console.error(`getFlightSchedules - sumSeats failed for schedule ${r.id}, date=${bookDate}: ${e.message}`);
+            availableSeats = 0;
+          }
 
           return {
             ...r.toJSON(),
@@ -75,11 +102,14 @@ async function getFlightSchedules(req, res) {
           };
         })
       );
+      output = output.filter(item => item !== null);
     }
 
+    console.log(`getFlightSchedules - Returning ${output.length} schedules`);
     res.json(output);
   } catch (err) {
-    res.status(500).json({ error: 'Database query failed' });
+    console.error(`getFlightSchedules - Error: ${err.message}, Stack: ${err.stack}`);
+    res.status(500).json({ error: 'Database query failed', details: err.message });
   }
 }
 

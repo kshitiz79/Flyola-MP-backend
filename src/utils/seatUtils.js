@@ -1,114 +1,94 @@
-const getModels = () => require('../model');
+/**
+ * utils/seatUtils.js
+ *
+ *  seatLeft = seat_limit − maxConcurrentBookingsOnAnySegment
+ *  ────────────────────────────────────────────────────────────
+ *  • A booking counts on every *segment* it covers
+ *    (segment = leg between two consecutive airports).
+ *  • We build an array “loadPerSegment[]”, add the booked_seat
+ *    value to each relevant segment, then take Math.max().
+ */
+const SEG_CACHE = new WeakMap();
 
-async function sumSeats({ models, schedule_id, bookDate, transaction }) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(bookDate)) {
-    console.error(`sumSeats - Invalid bookDate format: ${bookDate}`);
-    return 0;
-  }
+/** Parse the flight’s ordered airport list only once per Flight instance */
+function getRoute(flight) {
+  if (SEG_CACHE.has(flight)) return SEG_CACHE.get(flight);
+  const stops = Array.isArray(flight.airport_stop_ids)
+    ? flight.airport_stop_ids
+    : JSON.parse(flight.airport_stop_ids || '[]');
+  const route = [flight.start_airport_id, ...stops, flight.end_airport_id];
+  SEG_CACHE.set(flight, route);
+  return route;
+}
+
+/** Is schedule B’s segment overlapping schedule A’s segment? */
+function overlaps(route, a, b) {
+  const aStart = route.indexOf(a.dep), aEnd = route.indexOf(a.arr);
+  const bStart = route.indexOf(b.dep), bEnd = route.indexOf(b.arr);
+  return aStart < bEnd && bStart < aEnd;        // interval overlap (open‑right)
+}
+
+/**
+ * seatsLeft({ models, schedule_id, bookDate [, transaction] })
+ * ------------------------------------------------------------
+ * Returns *remaining* seats for the requested schedule on the given date.
+ */
+exports.sumSeats = async ({ models, schedule_id, bookDate, transaction = null }) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(bookDate))
+    throw new Error('bookDate must be YYYY‑MM‑DD');
 
   const schedule = await models.FlightSchedule.findByPk(schedule_id, {
     include: [{ model: models.Flight }],
     transaction,
   });
-  if (!schedule || !schedule.Flight) {
-    console.warn(`sumSeats - Schedule ${schedule_id} or Flight not found`);
-    return 0;
-  }
+  if (!schedule || !schedule.Flight) throw new Error('Schedule or Flight not found');
 
-  const flight = schedule.Flight;
-  let routeAirports;
-  try {
-    routeAirports = flight.airport_stop_ids
-      ? JSON.parse(flight.airport_stop_ids)
-      : [flight.start_airport_id, flight.end_airport_id];
-    if (!Array.isArray(routeAirports) || routeAirports.length === 0 || routeAirports.includes(0)) {
-      console.warn(
-        `sumSeats - Invalid airport_stop_ids for flight ${flight.id}: ${flight.airport_stop_ids}. ` +
-        `Falling back to start_airport_id=${flight.start_airport_id}, end_airport_id=${flight.end_airport_id}`
-      );
-      routeAirports = [flight.start_airport_id, flight.end_airport_id];
-    }
-  } catch (err) {
-    console.error(
-      `sumSeats - Error parsing airport_stop_ids for flight ${flight.id}: ${err.message}. ` +
-      `Falling back to start_airport_id=${flight.start_airport_id}, end_airport_id=${flight.end_airport_id}`
-    );
-    routeAirports = [flight.start_airport_id, flight.end_airport_id];
-  }
+  const flight   = schedule.Flight;
+  const route    = getRoute(flight);
 
-  console.log(
-    `sumSeats - Schedule ${schedule_id}, flight_id=${flight.id}, ` +
-    `seat_limit=${flight.seat_limit}, routeAirports=${JSON.stringify(routeAirports)}, ` +
-    `departure_airport_id=${schedule.departure_airport_id}, ` +
-    `arrival_airport_id=${schedule.arrival_airport_id}`
-  );
-
-  const segmentStartIndex = routeAirports.indexOf(schedule.departure_airport_id);
-  const segmentEndIndex = routeAirports.indexOf(schedule.arrival_airport_id);
-  if (segmentStartIndex === -1 || segmentEndIndex === -1 || segmentStartIndex >= segmentEndIndex) {
-    console.warn(
-      `sumSeats - Invalid segment indices for schedule ${schedule_id}, ` +
-      `startIndex=${segmentStartIndex}, endIndex=${segmentEndIndex}. Using direct segment`
-    );
-    const bookedSeat = await models.BookedSeat.findOne({
-      where: { schedule_id, bookDate },
-      transaction,
-    });
-    const booked = bookedSeat ? bookedSeat.booked_seat : 0;
-    const seatsLeft = Math.max(0, flight.seat_limit - booked);
-    console.log(
-      `sumSeats - Schedule ${schedule_id}, bookDate=${bookDate}, booked=${booked}, ` +
-      `seatsLeft=${seatsLeft}, record=${bookedSeat ? JSON.stringify({ id: bookedSeat.id, booked_seat: bookedSeat.booked_seat }) : 'none'}`
-    );
-    return seatsLeft;
-  }
-
+  // ── 1. All schedules of this flight
   const allSchedules = await models.FlightSchedule.findAll({
     where: { flight_id: flight.id },
     transaction,
   });
 
-  const overlappingSchedules = allSchedules.filter((s) => {
-    const startIndex = routeAirports.indexOf(s.departure_airport_id);
-    const endIndex = routeAirports.indexOf(s.arrival_airport_id);
-    const isOverlapping =
-      startIndex !== -1 &&
-      endIndex !== -1 &&
-      startIndex <= segmentStartIndex &&
-      endIndex >= segmentEndIndex &&
-      startIndex < endIndex;
-    console.log(
-      `sumSeats - Schedule ${s.id}, startIndex=${startIndex}, endIndex=${endIndex}, ` +
-      `isOverlapping=${isOverlapping}, departure=${s.departure_airport_id}, arrival=${s.arrival_airport_id}`
-    );
-    return isOverlapping;
+  // ── 2. Build segment load array
+  const segCount = route.length - 1;                  // e.g. A‑B‑C‑D ⇒ 3 segments
+  const loadPerSegment = Array(segCount).fill(0);
+
+  // helper: mark load on each segment index
+  const addLoad = (s, load) => {
+    const iStart = route.indexOf(s.dep);
+    const iEnd   = route.indexOf(s.arr);              // points to stop, NOT segment
+    for (let seg = iStart; seg < iEnd; seg++) {       // open‑right -> < iEnd
+      loadPerSegment[seg] += load;
+    }
+  };
+
+  // ── 3. Accumulate booked seats per segment
+  const bookedRows = await models.BookedSeat.findAll({
+    where: { schedule_id: allSchedules.map(s => s.id), bookDate },
+    transaction,
   });
 
-  let totalBooked = 0;
-  const bookedDetails = [];
-  for (const s of overlappingSchedules) {
-    const bookedSeat = await models.BookedSeat.findOne({
-      where: { schedule_id: s.id, bookDate },
-      transaction,
-    });
-    const booked = bookedSeat ? bookedSeat.booked_seat : 0;
-    bookedDetails.push({ schedule_id: s.id, booked_seat: booked });
-    totalBooked += booked;
-    console.log(
-      `sumSeats - Schedule ${s.id}, bookDate=${bookDate}, booked=${booked}, ` +
-      `record=${bookedSeat ? JSON.stringify({ id: bookedSeat.id, booked_seat: bookedSeat.booked_seat }) : 'none'}`
+  for (const row of bookedRows) {
+    const s = allSchedules.find(x => x.id === row.schedule_id);
+    addLoad(
+      { dep: s.departure_airport_id, arr: s.arrival_airport_id },
+      row.booked_seat
     );
   }
 
-  const seatsLeft = Math.max(0, flight.seat_limit - totalBooked);
-  console.log(
-    `sumSeats - Schedule ${schedule_id}, bookDate=${bookDate}, ` +
-    `seat_limit=${flight.seat_limit}, totalBooked=${totalBooked}, seatsLeft=${seatsLeft}, ` +
-    `bookedDetails=`,
-    bookedDetails
-  );
-
-  return seatsLeft;
-}
-
-module.exports = { sumSeats };
+    // ► Only look at the segments this schedule REALLY covers
+    const segStart = route.indexOf(schedule.departure_airport_id);
+    const segEnd   = route.indexOf(schedule.arrival_airport_id);   // index of stop, not segment
+    if (segStart === -1 || segEnd === -1 || segStart >= segEnd) {
+      throw new Error(
+        `sumSeats: schedule ${schedule_id} has invalid dep/arr indices in route`
+      );
+    }
+  
+    const sliceLoad = loadPerSegment.slice(segStart, segEnd);       // e.g. A→C ⇒ seg[0..1]
+    const maxBooked = Math.max(0, ...sliceLoad);
+    return Math.max(0, flight.seat_limit - maxBooked);
+};
