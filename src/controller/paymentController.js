@@ -24,16 +24,42 @@ const createPaymentUtil = async (paymentData, transaction) => {
 // Create Razorpay order
 const createOrder = async (req, res) => {
   const { amount } = req.body;
+
+  // 1️⃣ Validate
+  if (amount == null) {
+    console.error("createOrder: missing amount in req.body:", req.body);
+    return res.status(400).json({ error: "Missing required field: amount" });
+  }
+  const numericAmount = Number(amount);
+  if (isNaN(numericAmount) || numericAmount <= 0) {
+    console.error("createOrder: invalid amount:", amount);
+    return res.status(400).json({ error: "Invalid amount. Must be a positive number." });
+  }
+
+  console.log(`createOrder: received amount=${numericAmount}`);
+
   try {
-    const order = await razorpay.orders.create({
-      amount: amount * 100, // Convert to paise
-      currency: 'INR',
-      receipt: `receipt_${Date.now()}`,
-    });
-    res.json({ order_id: order.id });
+    // 2️⃣ Wrap the SDK call so we can catch and surface its real error
+    let order;
+    try {
+      order = await razorpay.orders.create({
+        amount: numericAmount * 100, // paise
+        currency: 'INR',
+        receipt: `receipt_${Date.now()}`,
+      });
+    } catch (sdkErr) {
+      console.error("Razorpay SDK error in createOrder:", sdkErr);
+      // send back the SDK's error message
+      return res.status(502).json({ error: sdkErr.message || "Razorpay order creation failed" });
+    }
+
+    // 3️⃣ Success
+    console.log("createOrder: created razorpay order", order.id);
+    return res.json({ order_id: order.id });
   } catch (err) {
-    console.error('Error creating Razorpay order:', err);
-    res.status(500).json({ error: 'Failed to create order' });
+    // 4️⃣ Catch anything else
+    console.error("Unexpected error in createOrder:", err);
+    return res.status(500).json({ error: err.message || "Internal server error" });
   }
 };
 
