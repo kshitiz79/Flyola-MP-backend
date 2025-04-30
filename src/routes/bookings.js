@@ -8,7 +8,7 @@ router.get('/:id', bookingController.getBookingById); // Example
 router.post('/', bookingController.createBooking); // Example
 router.put('/:id', bookingController.updateBooking); // Example
 router.delete('/:id', bookingController.deleteBooking); // Example
-
+router.get("/summary",bookingController.getBookingSummary);
 // Add complete-booking route
 router.post('/complete-booking', bookingController.completeBooking);
 

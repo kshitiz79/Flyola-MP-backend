@@ -17,13 +17,6 @@ function verifyPayment({ order_id, payment_id, signature }) {
     .update(payload)
     .digest("hex");
 
-  console.log("🔍 verifyPayment:", {
-    order_id,
-    payment_id,
-    incoming_signature: signature,
-    expected_signature: expected,
-  });
-
   return expected === signature;
 }
 

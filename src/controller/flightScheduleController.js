@@ -1,5 +1,4 @@
 const { format, toZonedTime } = require('date-fns-tz');
-const { Op } = require('sequelize');
 const { sumSeats } = require('../utils/seatUtils');
 const getModels = () => require('../model');
 
@@ -7,108 +6,88 @@ async function getFlightSchedules(req, res) {
   const models = getModels();
   const isUserRequest = req.query.user === 'true';
   const monthQuery = req.query.month;
-
   try {
     const where = isUserRequest ? { status: 1 } : {};
-    console.log(`getFlightSchedules - Query: isUserRequest=${isUserRequest}, month=${monthQuery}, where=${JSON.stringify(where)}`);
     const rows = await models.FlightSchedule.findAll({
       where,
       include: [{ model: models.Flight }],
     });
-    console.log(`getFlightSchedules - Found ${rows.length} schedules`);
 
     let output = [];
     if (monthQuery) {
-      const [year, month] = monthQuery.split("-").map(Number);
+      const [year, month] = monthQuery.split('-').map(Number);
       const startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
       const endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
 
       for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-        const currentDate = format(d, 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
+        const departure_date = format(d, 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
         const weekday = format(d, 'EEEE', { timeZone: 'Asia/Kolkata' });
 
-        for (const r of rows) {
-          const flight = r.Flight;
-          if (!flight) {
-            console.warn(`getFlightSchedules - Missing Flight for schedule ${r.id}, flight_id=${r.flight_id}`);
-            continue;
-          }
-          if (flight.departure_day === weekday) {
-            let viaStopIds = [];
-            try {
-              viaStopIds = r.via_stop_id ? JSON.parse(r.via_stop_id) : [];
-              viaStopIds = viaStopIds.filter(id => id && Number.isInteger(id) && id !== 0);
-            } catch (e) {
-              console.warn(`getFlightSchedules - Invalid via_stop_id for schedule ${r.id}: ${r.via_stop_id}`);
-            }
+        for (const schedule of rows) {
+          const flight = schedule.Flight;
+          if (!flight || flight.departure_day !== weekday) continue;
 
-            let availableSeats;
-            try {
-              availableSeats = await sumSeats({
-                models,
-                schedule_id: r.id,
-                bookDate: currentDate,
-                transaction: null,
-              });
-            } catch (e) {
-              console.error(`getFlightSchedules - sumSeats failed for schedule ${r.id}, date=${currentDate}: ${e.message}`);
-              availableSeats = 0;
-            }
+          let viaStopIds = [];
+          try {
+            viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
+            viaStopIds = viaStopIds.filter(id => id && Number.isInteger(id) && id !== 0);
+          } catch {}
 
-            output.push({
-              ...r.toJSON(),
-              via_stop_id: JSON.stringify(viaStopIds),
-              departure_date: currentDate,
-              availableSeats,
+          let availableSeats = 0;
+          try {
+            availableSeats = await sumSeats({
+              models,
+              schedule_id: schedule.id,
+              bookDate: departure_date,
+              transaction: null,
             });
-          }
+          } catch {}
+
+          output.push({
+            ...schedule.toJSON(),
+            via_stop_id: JSON.stringify(viaStopIds),
+            departure_date,
+            availableSeats,
+          });
         }
       }
     } else {
       const bookDate = req.query.date || format(new Date(), 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
-      output = await Promise.all(
-        rows.map(async (r) => {
-          const flight = r.Flight;
-          if (!flight) {
-            console.warn(`getFlightSchedules - Missing Flight for schedule ${r.id}, flight_id=${r.flight_id}`);
-            return null;
-          }
+      const results = await Promise.all(
+        rows.map(async schedule => {
+          const flight = schedule.Flight;
+          if (!flight) return null;
+
           let viaStopIds = [];
           try {
-            viaStopIds = r.via_stop_id ? JSON.parse(r.via_stop_id) : [];
+            viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
             viaStopIds = viaStopIds.filter(id => id && Number.isInteger(id) && id !== 0);
-          } catch (e) {
-            console.warn(`getFlightSchedules - Invalid via_stop_id for schedule ${r.id}: ${r.via_stop_id}`);
-          }
+          } catch {}
 
-          let availableSeats;
+          let availableSeats = 0;
           try {
             availableSeats = await sumSeats({
               models,
-              schedule_id: r.id,
+              schedule_id: schedule.id,
               bookDate,
               transaction: null,
             });
-          } catch (e) {
-            console.error(`getFlightSchedules - sumSeats failed for schedule ${r.id}, date=${bookDate}: ${e.message}`);
-            availableSeats = 0;
-          }
+          } catch {}
 
           return {
-            ...r.toJSON(),
+            ...schedule.toJSON(),
             via_stop_id: JSON.stringify(viaStopIds),
             departure_date: bookDate,
             availableSeats,
           };
         })
       );
-      output = output.filter(item => item !== null);
+      output = results.filter(item => item);
     }
 
-    console.log(`getFlightSchedules - Returning ${output.length} schedules`);
     res.json(output);
   } catch (err) {
-    console.error(`getFlightSchedules - Error: ${err.message}, Stack: ${err.stack}`);
+    console.error('getFlightSchedules error:', err);
     res.status(500).json({ error: 'Database query failed', details: err.message });
   }
 }
@@ -117,16 +96,17 @@ async function addFlightSchedule(req, res) {
   const models = getModels();
   const { via_stop_id, ...body } = req.body;
   try {
-    let validViaStopIds = [];
-    if (via_stop_id) {
-      validViaStopIds = JSON.parse(via_stop_id).filter(id => id && Number.isInteger(id) && id !== 0);
-    }
-    const row = await models.FlightSchedule.create({
+    const validViaStopIds = via_stop_id
+      ? JSON.parse(via_stop_id).filter(id => id && Number.isInteger(id) && id !== 0)
+      : [];
+
+    const schedule = await models.FlightSchedule.create({
       ...body,
       via_stop_id: JSON.stringify(validViaStopIds),
     });
-    res.status(201).json({ id: row.id });
+    res.status(201).json({ id: schedule.id });
   } catch (err) {
+    console.error('addFlightSchedule error:', err);
     res.status(500).json({ error: 'Failed to add flight schedule' });
   }
 }
@@ -135,18 +115,20 @@ async function updateFlightSchedule(req, res) {
   const models = getModels();
   const { via_stop_id, ...body } = req.body;
   try {
-    const row = await models.FlightSchedule.findByPk(req.params.id);
-    if (!row) return res.status(404).json({ error: 'Not found' });
-    let validViaStopIds = [];
-    if (via_stop_id) {
-      validViaStopIds = JSON.parse(via_stop_id).filter(id => id && Number.isInteger(id) && id !== 0);
-    }
-    await row.update({
+    const schedule = await models.FlightSchedule.findByPk(req.params.id);
+    if (!schedule) return res.status(404).json({ error: 'Not found' });
+
+    const validViaStopIds = via_stop_id
+      ? JSON.parse(via_stop_id).filter(id => id && Number.isInteger(id) && id !== 0)
+      : [];
+
+    await schedule.update({
       ...body,
       via_stop_id: JSON.stringify(validViaStopIds),
     });
     res.json({ message: 'Updated' });
   } catch (err) {
+    console.error('updateFlightSchedule error:', err);
     res.status(500).json({ error: 'Failed to update' });
   }
 }
@@ -154,12 +136,12 @@ async function updateFlightSchedule(req, res) {
 async function deleteFlightSchedule(req, res) {
   const models = getModels();
   try {
-    const row = await models.FlightSchedule.findByPk(req.params.id);
-    if (!row) return res.status(404).json({ error: 'Not found' });
-    await row.destroy();
+    const schedule = await models.FlightSchedule.findByPk(req.params.id);
+    if (!schedule) return res.status(404).json({ error: 'Not found' });
+    await schedule.destroy();
     res.json({ message: 'Deleted' });
   } catch (err) {
-    console.error('Error deleting flight schedule:', err);
+    console.error('deleteFlightSchedule error:', err);
     res.status(500).json({ error: 'Failed to delete' });
   }
 }
@@ -170,6 +152,7 @@ async function activateAllFlightSchedules(req, res) {
     await models.FlightSchedule.update({ status: 1 }, { where: {} });
     res.json({ message: 'All flight schedules activated' });
   } catch (err) {
+    console.error('activateAllFlightSchedules error:', err);
     res.status(500).json({ error: 'Failed to activate all' });
   }
 }
@@ -177,8 +160,7 @@ async function activateAllFlightSchedules(req, res) {
 async function editAllFlightSchedules(req, res) {
   const models = getModels();
   const { price } = req.body;
-  if (!price || isNaN(price))
-    return res.status(400).json({ error: 'Invalid price' });
+  if (!price || isNaN(price)) return res.status(400).json({ error: 'Invalid price' });
   try {
     await models.FlightSchedule.update(
       { price: parseFloat(price) },
@@ -186,6 +168,7 @@ async function editAllFlightSchedules(req, res) {
     );
     res.json({ message: 'All flight schedules updated' });
   } catch (err) {
+    console.error('editAllFlightSchedules error:', err);
     res.status(500).json({ error: 'Failed to update all' });
   }
 }
@@ -196,6 +179,7 @@ async function deleteAllFlightSchedules(req, res) {
     await models.FlightSchedule.destroy({ where: {} });
     res.json({ message: 'All flight schedules deleted' });
   } catch (err) {
+    console.error('deleteAllFlightSchedules error:', err);
     res.status(500).json({ error: 'Failed to delete all' });
   }
 }
@@ -206,11 +190,10 @@ async function updateFlightStops(req, res) {
   try {
     const flight = await models.Flight.findByPk(flight_id);
     if (!flight) return res.status(404).json({ error: 'Flight not found' });
-    await flight.update({
-      airport_stop_ids: JSON.stringify(airport_stop_ids),
-    });
+    await flight.update({ airport_stop_ids: JSON.stringify(airport_stop_ids) });
     res.json({ message: 'Flight stops updated' });
   } catch (err) {
+    console.error('updateFlightStops error:', err);
     res.status(500).json({ error: 'Failed to update flight stops' });
   }
 }

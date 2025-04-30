@@ -34,10 +34,7 @@ app.use('/billings', require('./src/routes/billings'));
 app.use('/payments', require('./src/routes/payments'));
 
 
-console.log('Environment variables loaded:', {
-  RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID,
-  RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET ? '[REDACTED]' : 'undefined',
-});
+
 
 
 

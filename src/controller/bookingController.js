@@ -9,74 +9,16 @@ const dayjs = require('dayjs');
  * Returns an array of all schedule IDs that cover the same segment range 
  * [departure_airport_id → arrival_airport_id] on the parent flight’s route.
  */
-const routeIndex = (route, id) => route.indexOf(id);
 
-async function getWrappedScheduleIds(models, schedule_id) {
-  if (!models.FlightSchedule) throw new Error('FlightSchedule model is undefined');
 
-  const schedule = await models.FlightSchedule.findByPk(schedule_id, {
-    include: [{ model: models.Flight }],
-  });
-  if (!schedule || !schedule.Flight) throw new Error('Schedule not found');
 
-  /* Build the ordered route */
-  let route = [];
-  try {
-    const stops = Array.isArray(schedule.Flight.airport_stop_ids)
-      ? schedule.Flight.airport_stop_ids
-      : JSON.parse(schedule.Flight.airport_stop_ids || '[]');
-    route = [
-      schedule.Flight.start_airport_id,
-      ...stops,
-      schedule.Flight.end_airport_id,
-    ];
-  } catch (err) {
-    /* Fallback to start→end if stored JSON is corrupt */
-    route = [schedule.Flight.start_airport_id, schedule.Flight.end_airport_id];
-  }
-
-  const depIdx = routeIndex(route, schedule.departure_airport_id);
-  const arrIdx = routeIndex(route, schedule.arrival_airport_id);
-  if (depIdx === -1 || arrIdx === -1 || depIdx >= arrIdx) {
-    console.warn(
-      `getWrappedScheduleIds – invalid indices for schedule ${schedule_id}: ` +
-      `depIdx=${depIdx}, arrIdx=${arrIdx}, route=[${route.join('→')}]`
-    );
-    return [schedule_id]; // safety: fall back to self only
-  }
-
-  /* Direct leg (one segment) */
-  if (depIdx + 1 === arrIdx) return [schedule_id];
-
-  /* Gather all schedules of this flight */
-  const allSchedules = await models.FlightSchedule.findAll({
-    where: { flight_id: schedule.Flight.id },
-    attributes: ['id', 'departure_airport_id', 'arrival_airport_id'],
-  });
-
-  /* Keep those whose slice fully covers ours */
-  const wrapped = allSchedules
-    .filter((s) => {
-      const sDep = routeIndex(route, s.departure_airport_id);
-      const sArr = routeIndex(route, s.arrival_airport_id);
-      return sDep !== -1 && sArr !== -1 && sDep <= depIdx && sArr >= arrIdx && sDep < sArr;
-    })
-    .map((s) => s.id);
-
-  return wrapped.length ? wrapped : [schedule_id];
-}
-
-/**
- * completeBooking: Handles full booking flow across multiple segments.
- * - Verifies Razorpay payment signature
- * - Checks and updates seats on all overlapping schedules
- * - Creates Booking, Billing, Payment, and Passenger records atomically
- * - Returns bookingId and updatedSeatCounts
- */
 exports.completeBooking = async (req, res) => {
   const { bookedSeat, booking, billing, payment, passengers } = req.body;
 
-  /* 1️⃣ Payload validation */
+  // Log input
+  console.log('completeBooking input:', { bookedSeat, booking, billing, payment, passengers });
+
+  // Validation
   if (
     !bookedSeat ||
     !booking ||
@@ -91,7 +33,6 @@ exports.completeBooking = async (req, res) => {
     return res.status(400).json({ error: 'Invalid bookDate format (YYYY-MM-DD)' });
   }
 
-  /* 2️⃣ Field presence checks (booking / billing / payment) */
   const bookingFields = [
     'pnr',
     'bookingNo',
@@ -116,7 +57,6 @@ exports.completeBooking = async (req, res) => {
     'payment_id',
     'payment_mode',
     'order_id',
-    'razorpay_signature',
   ];
   for (const f of paymentFields) {
     if (!payment[f]) return res.status(400).json({ error: `Missing payment field: ${f}` });
@@ -128,53 +68,53 @@ exports.completeBooking = async (req, res) => {
     }
   }
 
-  /* 3️⃣ Check payment_mode */
-  if (payment.payment_mode !== 'RAZORPAY') {
-    return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY' });
+  if (!['RAZORPAY', 'ADMIN'].includes(payment.payment_mode)) {
+    return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY or ADMin' });
   }
 
-  /* ---------------------------------------------------------------- */
   try {
     let result;
     await models.sequelize.transaction(async (t) => {
-      /* 4️⃣ Verify Razorpay signature */
-      const ok = await verifyPayment({
-        order_id: payment.order_id,
-        payment_id: payment.payment_id,
-        signature: payment.razorpay_signature,
-      });
-      if (!ok) throw new Error('Invalid Razorpay signature');
-
-      /* 5️⃣ Check seat availability on each wrapped segment */
-      const wrappedIds = await getWrappedScheduleIds(models, bookedSeat.schedule_id);
-      for (const sid of wrappedIds) {
-        const left = await sumSeats({
-          models,
-          schedule_id: sid,
-          bookDate: bookedSeat.bookDate,
-          transaction: t,
+      if (payment.payment_mode === 'RAZORPAY') {
+        const ok = await verifyPayment({
+          order_id: payment.order_id,
+          payment_id: payment.payment_id,
+          signature: payment.razorpay_signature,
         });
-        if (left < bookedSeat.booked_seat) {
-          throw new Error(`Only ${left} seat(s) left on ${bookedSeat.bookDate} for schedule ${sid}`);
-        }
+        if (!ok) throw new Error('Invalid Razorpay signature');
+      } else if (payment.payment_mode === 'DUMMY') {
+        payment.payment_status = 'SUCCESS';
+        payment.transaction_id = `TXN-DUMMY-${Date.now()}`;
+        payment.payment_id = `PAY-DUMMY-${Date.now()}`;
+        payment.order_id = `ORDER-DUMMY-${Date.now()}`;
       }
 
-      /* 6️⃣ Upsert BookedSeat rows */
-      await Promise.all(
-        wrappedIds.map(async (sid) => {
-          const [row] = await models.BookedSeat.findOrCreate({
-            where: { schedule_id: sid, bookDate: bookedSeat.bookDate },
-            defaults: { booked_seat: bookedSeat.booked_seat },
-            transaction: t,
-            lock: t.LOCK.UPDATE,
-          });
-          if (!row.isNewRecord) {
-            await row.increment({ booked_seat: bookedSeat.booked_seat }, { transaction: t });
-          }
-        })
-      );
+      const seatsLeft = await sumSeats({
+        models,
+        schedule_id: bookedSeat.schedule_id,
+        bookDate: bookedSeat.bookDate,
+        transaction: t,
+      });
+      console.log('Seats left:', seatsLeft);
+      if (seatsLeft < bookedSeat.booked_seat) {
+        throw new Error(
+          `Only ${seatsLeft} seat(s) left on ${bookedSeat.bookDate} for schedule ${bookedSeat.schedule_id}`
+        );
+      }
 
-      /* 7️⃣ Create Booking, Billing, Payment, Passenger rows */
+      const [row, created] = await models.BookedSeat.findOrCreate({
+        where: { schedule_id: bookedSeat.schedule_id, bookDate: bookedSeat.bookDate },
+        defaults: { booked_seat: bookedSeat.booked_seat },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      console.log('findOrCreate:', { created, row: row.toJSON() });
+
+      if (!row.isNewRecord) {
+        await row.increment({ booked_seat: bookedSeat.booked_seat }, { transaction: t });
+        console.log('After increment:', row.toJSON());
+      }
+
       const newBooking = await models.Booking.create(
         {
           ...booking,
@@ -207,21 +147,21 @@ exports.completeBooking = async (req, res) => {
         { transaction: t }
       );
 
-      /* 8️⃣ Prepare updated availability for response / front-end push */
-      const updatedSeatCounts = await Promise.all(
-        wrappedIds.map(async (sid) => ({
-          schedule_id: sid,
+      const updatedSeatCounts = [
+        {
+          schedule_id: bookedSeat.schedule_id,
           bookDate: bookedSeat.bookDate,
           seatsLeft: await sumSeats({
             models,
-            schedule_id: sid,
+            schedule_id: bookedSeat.schedule_id,
             bookDate: bookedSeat.bookDate,
             transaction: t,
           }),
-        }))
-      );
+        },
+      ];
+      console.log('Updated seat counts:', updatedSeatCounts);
 
-      result = { bookingId: newBooking.id, updatedSeatCounts };
+      result = { bookingId: newBooking.id, updatedSeatCounts, bookingNo: newBooking.bookingNo };
     });
 
     return res.status(201).json(result);
@@ -230,11 +170,9 @@ exports.completeBooking = async (req, res) => {
     return res.status(400).json({ error: err.message });
   }
 };
-/**
- * CRUD endpoints below (optional if you need full controller):
- */
 
-// Fetch all bookings with related billing info
+
+
 exports.getBookings = async (req, res) => {
   try {
     const bookings = await models.Booking.findAll({
@@ -313,5 +251,27 @@ exports.deleteBooking = async (req, res) => {
     if (t) await t.rollback();
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+};
+
+
+
+
+exports.getBookingSummary = async (req, res) => {
+  try {
+    const { status } = req.query;
+    const where = {};
+    if (status && status !== "All Booking") {
+      where.bookingStatus = status.toUpperCase();
+    }
+    // Sum number of passengers
+    const totalSeats = await models.Booking.sum("noOfPassengers", { where });
+    // Count total bookings
+    const totalBookings = await models.Booking.count({ where });
+
+    return res.json({ totalBookings, totalSeats: totalSeats || 0 });
+  } catch (err) {
+    console.error("Error fetching booking summary:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
