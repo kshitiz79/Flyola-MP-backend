@@ -11,8 +11,13 @@ router.delete('/:id', bookingController.deleteBooking); // Example
 router.get("/summary",bookingController.getBookingSummary);
 // Add complete-booking route
 router.post('/complete-booking', bookingController.completeBooking);
+router.post('/complete-irctc-booking', bookingController.completeIrctcBooking);
+
 
 module.exports = router;
+
+
+
 
 
 

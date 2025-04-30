@@ -1,0 +1,18 @@
+{
+    "sourceFile": "src/routes/bookings.js",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1746000388372,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1746000388372,
+            "name": "Commit-0",
+            "content": "const express = require('express');\nconst router = express.Router();\nconst bookingController = require('../controller/bookingController');\n\n// Existing booking routes (if any)\nrouter.get('/', bookingController.getBookings); // Example\nrouter.get('/:id', bookingController.getBookingById); // Example\nrouter.post('/', bookingController.createBooking); // Example\nrouter.put('/:id', bookingController.updateBooking); // Example\nrouter.delete('/:id', bookingController.deleteBooking); // Example\nrouter.get(\"/summary\",bookingController.getBookingSummary);\n// Add complete-booking route\nrouter.post('/complete-booking', bookingController.completeBooking);\nrouter.post('/complete-irctc-booking', bookingController.completeIrctcBooking);\n\n\nmodule.exports = router;\n\n\n\n\n\n\n\n"
+        }
+    ]
+}
