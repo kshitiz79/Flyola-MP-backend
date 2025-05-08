@@ -1,4 +1,4 @@
-const Passenger = require('../model/passanger'); // Ensure path is correct
+const Passenger = require('../model/passanger'); 
 
 exports.getAllPassengers = async (req, res) => {
   try {
@@ -13,17 +13,17 @@ exports.createPassenger = async (req, res) => {
   try {
     const { name, age, dob, title, type, bookingId } = req.body;
 
-    // Validate required fields
+    
     if (!name || !dob || !title || !type || !bookingId) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
-    // Validate type
+    
     if (!['Adult', 'Child', 'Infant'].includes(type)) {
       return res.status(400).json({ message: 'Invalid passenger type' });
     }
 
-    // Create passenger
+    
     const passenger = await Passenger.create({
       name,
       age: age || null,

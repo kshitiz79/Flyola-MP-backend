@@ -1,8 +1,8 @@
-// controller/paymentController.js
+
 const getModels = () => require('../model');
 const { razorpay } = require('../utils/razorpay');
 
-// Utility function to create a payment
+
 const createPaymentUtil = async (paymentData, transaction) => {
   const models = getModels();
   try {
@@ -12,7 +12,7 @@ const createPaymentUtil = async (paymentData, transaction) => {
   }
 };
 
-// Create Razorpay order
+
 const createOrder = async (req, res) => {
   const { amount } = req.body;
   if (amount == null) {
@@ -27,7 +27,7 @@ const createOrder = async (req, res) => {
     let order;
     try {
       order = await razorpay.orders.create({
-        amount: numericAmount * 100, // paise
+        amount: numericAmount * 100, 
         currency: 'INR',
         receipt: `receipt_${Date.now()}`,
       });
@@ -41,7 +41,7 @@ const createOrder = async (req, res) => {
   }
 };
 
-// Get all payments
+
 const getPayments = async (req, res) => {
   try {
     const payments = await getModels().Payment.findAll({
@@ -53,7 +53,7 @@ const getPayments = async (req, res) => {
   }
 };
 
-// Get a payment by ID
+
 const getPaymentById = async (req, res) => {
   const { id } = req.params;
   try {
@@ -67,7 +67,7 @@ const getPaymentById = async (req, res) => {
   }
 };
 
-// Create a payment (standalone endpoint)
+
 const createPayment = async (req, res) => {
   const {
     transaction_id,
@@ -97,7 +97,7 @@ const createPayment = async (req, res) => {
   }
 };
 
-// Update a payment
+
 const updatePayment = async (req, res) => {
   const { id } = req.params;
   const {
@@ -131,7 +131,7 @@ const updatePayment = async (req, res) => {
   }
 };
 
-// Delete a payment
+
 const deletePayment = async (req, res) => {
   const { id } = req.params;
   try {

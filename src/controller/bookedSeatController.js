@@ -56,9 +56,7 @@ async function getWrappedScheduleIds(schedule_id) {
 }
 
 exports.getWrappedScheduleIds = getWrappedScheduleIds;
-/* ------------------------------------------------------------------ */
-/* Controllers                                                        */
-/* ------------------------------------------------------------------ */
+
 
 exports.getBookedSeats = async (req, res) => {
   const models = getModels();
@@ -92,9 +90,7 @@ exports.getBookedSeatById = async (req, res) => {
   }
 };
 
-/* ------------------------------------------------------------------ */
-/* CREATE                                                             */
-/* ------------------------------------------------------------------ */
+
 exports.createBookedSeat = async (req, res) => {
   const models = getModels();
   const { bookDate, schedule_id, booked_seat } = req.body;
@@ -152,9 +148,7 @@ exports.createBookedSeat = async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 };
-/* ------------------------------------------------------------------ */
-/* UPDATE                                                             */
-/* ------------------------------------------------------------------ */
+
 exports.updateBookedSeat = async (req, res) => {
   const models = getModels();
   const { id } = req.params;
@@ -253,9 +247,7 @@ exports.updateBookedSeat = async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 };
-/* ------------------------------------------------------------------ */
-/* DELETE                                                             */
-/* ------------------------------------------------------------------ */
+
 exports.deleteBookedSeat = async (req, res) => {
   const models = getModels();
   const { id } = req.params;

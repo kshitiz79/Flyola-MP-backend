@@ -19,7 +19,7 @@ const Passenger = sequelize.define(
     },
     dob: {
       type: DataTypes.DATEONLY,
-      allowNull: false,
+      allowNull: true,
     },
     title: {
       type: DataTypes.STRING,
@@ -27,7 +27,7 @@ const Passenger = sequelize.define(
     },
     type: {
       type: DataTypes.STRING,
-      allowNull: false, // Adult, Child, Infant
+      allowNull: false, 
     },
     bookingId: {
       type: DataTypes.INTEGER,

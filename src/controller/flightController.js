@@ -4,9 +4,6 @@ const { Op } = require('sequelize');
 const getModels = () => require('../model');
 const validateIdsExist = require('../utils/validateIdsExist');
 
-/**
- * Return the full airport chain for a flight: [start, ...stops..., end]
- */
 function getRouteAirports({ start_airport_id, end_airport_id, airport_stop_ids }) {
   let stopsRaw = [];
   try {

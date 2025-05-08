@@ -11,10 +11,17 @@ router.delete('/:id', bookingController.deleteBooking); // Example
 router.get("/summary",bookingController.getBookingSummary);
 // Add complete-booking route
 router.post('/complete-booking', bookingController.completeBooking);
-router.post('/complete-irctc-booking', bookingController.completeIrctcBooking);
 
-
+router.post('/book-seats-irctc', bookingController.bookSeatsWithoutPayment);
+router.get('/irctc-bookings', (req, res, next) => {
+    console.log('Route /irctc-bookings matched');
+    bookingController.getIrctcBookings(req, res, next);
+});
 module.exports = router;
+
+
+
+
 
 
 

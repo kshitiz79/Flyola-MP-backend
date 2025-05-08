@@ -35,7 +35,7 @@ const Booking = sequelize.define(
       allowNull: false,
     },
     schedule_id: {
-      type: DataTypes.INTEGER, // Changed to INTEGER and allowNull: true
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
     totalFare: {
@@ -75,7 +75,7 @@ const Booking = sequelize.define(
       defaultValue: '0',
     },
     agent_type: {
-      type: DataTypes.STRING,
+      type: DataTypes.ENUM('flyola', 'IRCTC'),
       defaultValue: 'flyola',
     },
     created_at: {
@@ -99,7 +99,7 @@ Booking.associate = (models) => {
   Booking.belongsTo(models.FlightSchedule, {
     foreignKey: 'schedule_id',
     targetKey: 'id',
-    onDelete: 'SET NULL', // Add onDelete behavior
+    onDelete: 'SET NULL',
   });
   Booking.hasMany(models.Payment, { foreignKey: 'booking_id', sourceKey: 'id' });
   Booking.belongsTo(models.User, { foreignKey: 'bookedUserId', targetKey: 'id' });

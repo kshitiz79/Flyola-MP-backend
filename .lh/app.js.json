@@ -1,0 +1,22 @@
+{
+    "sourceFile": "app.js",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 1,
+            "patches": [
+                {
+                    "date": 1746002781130,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                },
+                {
+                    "date": 1746002797216,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -6,9 +6,9 @@\n \n const app = express();\n \n const corsOptions = {\n-  origin: ['http://localhost:3000','https://www.jetserveaviation.com', 'https://jetserveaviation.com  ], \n+  origin: ['http://localhost:3000','https://www.jetserveaviation.com', 'https://jetserveaviation.com ' ],\n   credentials: true,\n   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],\n   allowedHeaders: ['Content-Type', 'Authorization'],\n };\n"
+                }
+            ],
+            "date": 1746002781130,
+            "name": "Commit-0",
+            "content": "// server.js\nconst express = require('express');\nconst cors = require('cors');\nconst cookieParser = require('cookie-parser');\nrequire('dotenv').config();\n\nconst app = express();\n\nconst corsOptions = {\n  origin: ['http://localhost:3000','https://www.jetserveaviation.com', 'https://jetserveaviation.com  ], \n  credentials: true,\n  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],\n  allowedHeaders: ['Content-Type', 'Authorization'],\n};\n\napp.use(cors(corsOptions));\napp.use(express.json());\napp.use(express.urlencoded({ extended: false }));\napp.use(cookieParser());\n\n// Mount your routes\napp.use('/', require('./src/routes/index'));\n\n\n\n\napp.use('/reviews', require('./src/routes/reviews'));\napp.use('/billings', require('./src/routes/billings'));\n\n\n\n\n\napp.use('/payments', require('./src/routes/payments'));\n\n\n\n\n\n\n// No changes needed, but ensure this line exists:\napp.use('/bookings', require('./src/routes/bookings'));\n\n\n\napp.use('/booked-seat', require('./src/routes/bookedSeates'));\n\n\napp.use('/passenger', require('./src/routes/passengerRoutes'));\n\n\n\nconst flightRoutes = require('./src/routes/flightRoutes');\n\napp.use('/flights', flightRoutes);\n\n\n\n\nconst userRoutes = require('./src/routes/users');\napp.use('/users', userRoutes);\n\n\n\n\nconst flightScheduleRoutes = require('./src/routes/flightScheduleRoutes');\napp.use('/flight-schedules', flightScheduleRoutes);\n\n\nconst airportRoutes = require('./src/routes/airport');\napp.use('/airport', airportRoutes);\n\n\n\n\n\n// Start the server\nconst PORT = process.env.PORT || 4000;\napp.listen(PORT, () => {\n  console.log(`Server is running on port ${PORT}`);\n});\n\n\nmodule.exports = app;"
+        }
+    ]
+}

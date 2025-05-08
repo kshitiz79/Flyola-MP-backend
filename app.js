@@ -7,7 +7,7 @@ require('dotenv').config();
 const app = express();
 
 const corsOptions = {
-  origin: ['http://localhost:3000', 'https://flyola.in'], // Allow both localhost and flyola.in
+  origin: ['http://localhost:3000','https://www.jetserveaviation.com', 'https://jetserveaviation.com ' ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -70,7 +70,10 @@ app.use('/flight-schedules', flightScheduleRoutes);
 const airportRoutes = require('./src/routes/airport');
 app.use('/airport', airportRoutes);
 
-
+app.use((req, res, next) => {
+  console.log('Unmatched route:', req.method, req.url);
+  res.status(404).json({ error: 'Route not found' });
+});
 
 
 
