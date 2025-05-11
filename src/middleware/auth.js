@@ -1,3 +1,4 @@
+// src/middleware/auth.js
 const jwt = require('jsonwebtoken');
 
 const authenticate = (roles = []) => {
@@ -10,12 +11,15 @@ const authenticate = (roles = []) => {
 
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      if (!decoded.role && roles.length) {
+      if (roles.length && !decoded.role) {
         console.log('[Auth Middleware] Token missing role:', decoded);
         return res.status(403).json({ error: 'Forbidden: Invalid token payload' });
       }
       if (roles.length && !roles.includes(Number(decoded.role))) {
-        console.log('[Auth Middleware] Insufficient permissions:', { userRole: decoded.role, requiredRoles: roles });
+        console.log(
+          '[Auth Middleware] Insufficient permissions:',
+          { userRole: decoded.role, requiredRoles: roles }
+        );
         return res.status(403).json({ error: 'Forbidden: Insufficient permissions' });
       }
       req.user = decoded;

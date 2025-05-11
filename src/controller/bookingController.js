@@ -5,6 +5,12 @@ const { createPaymentUtil } = require('./paymentController');
 const { v4: uuidv4 } = require('uuid');
 const dayjs = require('dayjs');
 
+const jwt = require('jsonwebtoken');
+
+
+
+
+
 const crypto = require('crypto');
 
 
@@ -14,19 +20,17 @@ const crypto = require('crypto');
 const generatePNR = async () => {
   const maxAttempts = 10;
   let attempt = 0;
+  const crypto = require('crypto');
 
   while (attempt < maxAttempts) {
     try {
-      
       let pnr = crypto.randomBytes(6).toString('base64').replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
       if (pnr.length === 6) {
-        
         const existing = await models.Booking.findOne({ where: { pnr } });
         if (!existing) return pnr;
       }
     } catch (cryptoError) {
       console.warn('Crypto module issue, using UUID fallback for PNR:', cryptoError.message);
-      
       let pnr = uuidv4().replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
       if (pnr.length === 6) {
         const existing = await models.Booking.findOne({ where: { pnr } });
@@ -36,7 +40,6 @@ const generatePNR = async () => {
     attempt++;
   }
 
-  
   let pnr = uuidv4().replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
   if (pnr.length < 6) {
     pnr = pnr.padEnd(6, 'X');
@@ -52,7 +55,13 @@ const generatePNR = async () => {
 exports.completeBooking = async (req, res) => {
   const { bookedSeat, booking, billing, payment, passengers } = req.body;
 
-  console.log("completeBooking input:", { bookedSeat, booking, billing, payment, passengers });
+  console.log("completeBooking input:", {
+    bookedSeat,
+    booking,
+    billing,
+    payment,
+    passengers,
+  });
 
   if (
     !bookedSeat ||
@@ -65,7 +74,9 @@ exports.completeBooking = async (req, res) => {
     return res.status(400).json({ error: "Missing required booking sections" });
   }
   if (!dayjs(bookedSeat.bookDate, "YYYY-MM-DD", true).isValid()) {
-    return res.status(400).json({ error: "Invalid bookDate format (YYYY-MM-DD)" });
+    return res
+      .status(400)
+      .json({ error: "Invalid bookDate format (YYYY-MM-DD)" });
   }
 
   const bookingFields = [
@@ -79,7 +90,8 @@ exports.completeBooking = async (req, res) => {
     "schedule_id",
   ];
   for (const f of bookingFields) {
-    if (!booking[f]) return res.status(400).json({ error: `Missing booking field: ${f}` });
+    if (!booking[f])
+      return res.status(400).json({ error: `Missing booking field: ${f}` });
   }
   if (!billing.user_id) {
     return res.status(400).json({ error: "Missing billing field: user_id" });
@@ -94,29 +106,52 @@ exports.completeBooking = async (req, res) => {
     "order_id",
   ];
   for (const f of paymentFields) {
-    if (!payment[f]) return res.status(400).json({ error: `Missing payment field: ${f}` });
+    if (!payment[f])
+      return res.status(400).json({ error: `Missing payment field: ${f}` });
   }
 
   for (const p of passengers) {
     if (!p.name || !p.title || !p.type || typeof p.age !== "number") {
-      return res.status(400).json({ error: "Missing passenger fields: name, title, type, age" });
+      return res
+        .status(400)
+        .json({ error: "Missing passenger fields: name, title, type, age" });
     }
   }
 
-  if (payment.payment_mode !== "RAZORPAY") {
-    return res.status(400).json({ error: "Invalid payment_mode. Must be RAZORPAY" });
+  if (!["RAZORPAY", "ADMIN"].includes(payment.payment_mode)) {
+    return res
+      .status(400)
+      .json({ error: "Invalid payment_mode. Must be RAZORPAY or ADMIN" });
   }
 
   try {
     let result;
     await models.sequelize.transaction(async (t) => {
-      // Verify Razorpay payment
-      const ok = await verifyPayment({
-        order_id: payment.order_id,
-        payment_id: payment.payment_id,
-        signature: payment.razorpay_signature,
-      });
-      if (!ok) throw new Error("Invalid Razorpay signature");
+      // Verify user role for ADMIN payment mode
+      if (payment.payment_mode === "ADMIN") {
+        const token = req.cookies.token;
+        if (!token) {
+          throw new Error("Unauthorized: No token provided for admin booking");
+        }
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (Number(decoded.role) !== 1) {
+          throw new Error("Forbidden: Only admins can use ADMIN payment mode");
+        }
+        // Ensure bookedUserId and user_id match the token's user ID
+        if (booking.bookedUserId !== decoded.id || billing.user_id !== decoded.id || payment.user_id !== decoded.id) {
+          throw new Error("Forbidden: User ID mismatch");
+        }
+      }
+
+      // Verify Razorpay payment only for RAZORPAY mode
+      if (payment.payment_mode === "RAZORPAY") {
+        const ok = await verifyPayment({
+          order_id: payment.order_id,
+          payment_id: payment.payment_id,
+          signature: payment.razorpay_signature,
+        });
+        if (!ok) throw new Error("Invalid Razorpay signature");
+      }
 
       const seatsLeft = await sumSeats({
         models,
@@ -185,7 +220,11 @@ exports.completeBooking = async (req, res) => {
         },
       ];
 
-      result = { bookingId: newBooking.id, updatedSeatCounts, bookingNo: newBooking.bookingNo };
+      result = {
+        bookingId: newBooking.id,
+        updatedSeatCounts,
+        bookingNo: newBooking.bookingNo,
+      };
     });
 
     return res.status(201).json(result);
@@ -302,7 +341,16 @@ exports.bookSeatsWithoutPayment = async (req, res) => {
 };
 
 
-
+// In your bookings controller file (e.g., bookingsController.js)
+exports.generatePNR = async (req, res) => {
+  try {
+    const pnr = await generatePNR(); // Use the existing generatePNR function
+    res.json({ pnr });
+  } catch (err) {
+    console.error("generatePNR error:", err);
+    res.status(500).json({ error: "Failed to generate PNR" });
+  }
+};
 
 
 exports.getBookings = async (req, res) => {
@@ -490,5 +538,28 @@ exports.getIrctcBookings = async (req, res) => {
   } catch (err) {
     console.error('getIrctcBookings error:', err);
     res.status(500).json({ error: 'Failed to fetch IRCTC bookings' });
+  }
+};
+
+
+
+exports.getUserBookings = async (req, res) => {
+  const userId = req.user.id;           // set by authenticate()
+  try {
+    const userBookings = await models.Booking.findAll({
+      where: { bookedUserId: userId },
+      include: [
+        models.FlightSchedule,
+        models.Passenger,
+        models.BookedSeat,
+        models.Payment,
+      ],
+      order: [['bookDate', 'DESC']],
+    });
+
+    return res.json(userBookings);
+  } catch (err) {
+    console.error('getUserBookings error:', err);
+    return res.status(500).json({ error: 'Failed to fetch your bookings' });
   }
 };

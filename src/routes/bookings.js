@@ -1,26 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const bookingController = require('../controller/bookingController');
+const { authenticate } = require('../middleware/auth');
 
-// Existing booking routes (if any)
-router.get('/', bookingController.getBookings); // Example
-router.get('/:id', bookingController.getBookingById); // Example
-router.post('/', bookingController.createBooking); // Example
-router.put('/:id', bookingController.updateBooking); // Example
-router.delete('/:id', bookingController.deleteBooking); // Example
-router.get("/summary",bookingController.getBookingSummary);
-// Add complete-booking route
-router.post('/complete-booking', bookingController.completeBooking);
+// Booking routes
+router.get('/irctc-bookings',  bookingController.getIrctcBookings);
+router.get('/summary', authenticate(), bookingController.getBookingSummary);
+router.get('/', authenticate(), bookingController.getBookings);
+router.get('/:id(\\d+)', authenticate(), bookingController.getBookingById);
+router.post('/', authenticate(), bookingController.createBooking);
+router.put('/:id(\\d+)', authenticate(), bookingController.updateBooking);
+router.delete('/:id(\\d+)', authenticate(), bookingController.deleteBooking);
+router.post('/complete-booking', authenticate(), bookingController.completeBooking);
+router.post('/book-seats-irctc',  bookingController.bookSeatsWithoutPayment);
+router.get('/generate-pnr',  bookingController.generatePNR);
+router.get('/my', authenticate(), bookingController.getUserBookings);
 
-router.post('/book-seats-irctc', bookingController.bookSeatsWithoutPayment);
-router.get('/irctc-bookings', (req, res, next) => {
-    console.log('Route /irctc-bookings matched');
-    bookingController.getIrctcBookings(req, res, next);
-});
 module.exports = router;
-
-
-
 
 
 
