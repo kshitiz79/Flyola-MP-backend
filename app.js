@@ -7,11 +7,17 @@ require('dotenv').config();
 const app = express();
 
 const corsOptions = {
-  origin: ['http://localhost:3000','https://www.jetserveaviation.com', 'https://jetserveaviation.com ' ],
+  origin: [
+    'http://localhost:3000',
+    'https://www.jetserveaviation.com',
+    'https://jetserveaviation.com',
+    'https://glucksfinance.com'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 };
+
 
 app.use(cors(corsOptions));
 app.use(express.json());

@@ -8,24 +8,9 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Helper to build cookie options
-const buildCookieOptions = () => {
-  const isProd = process.env.NODE_ENV === 'production';
-  const opts = {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? 'None' : 'Lax',
-    maxAge: 3600000, // 1 hour
-    path: '/',
-  };
-  if (isProd) {
-    // set your real domain here, with leading dot if needed
-    opts.domain = '.yourdomain.com';
-  }
-  return opts;
-};
 
-/** Login **/
+
+
 router.post('/login', async (req, res) => {
   const models = getModels();
   const { email, password } = req.body;
@@ -34,13 +19,11 @@ router.post('/login', async (req, res) => {
   try {
     const user = await models.User.findOne({ where: { email } });
     if (!user) {
-      console.log('[Login] User not found:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      console.log('[Login] Password mismatch:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -52,11 +35,10 @@ router.post('/login', async (req, res) => {
     };
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-    res.cookie('token', token, buildCookieOptions());
-    console.log('[Login] Token set for user:', { email, role: user.role });
-
+    // Send token in response body (not cookie)
     return res.json({
       message: 'Login successful',
+      token,
       user: { id: user.id, email: user.email, role: Number(user.role) }
     });
   } catch (err) {
@@ -64,7 +46,6 @@ router.post('/login', async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 });
-
 /** Refresh Token **/
 router.post('/refresh-token', async (req, res) => {
   const models = getModels();
@@ -101,7 +82,12 @@ router.post('/refresh-token', async (req, res) => {
 
 /** Logout **/
 router.post('/logout', (req, res) => {
-  res.clearCookie('token', buildCookieOptions());
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'None' : 'Lax',
+    path: '/',
+  });
   return res.json({ message: 'Logged out successfully' });
 });
 

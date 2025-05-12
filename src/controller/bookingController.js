@@ -129,19 +129,32 @@ exports.completeBooking = async (req, res) => {
     await models.sequelize.transaction(async (t) => {
       // Verify user role for ADMIN payment mode
       if (payment.payment_mode === "ADMIN") {
-        const token = req.cookies.token;
+        // Accept cookie, standard Bearer header, or custom token header:
+        const token =
+          req.cookies?.token ||
+          (req.headers.authorization?.startsWith("Bearer ")
+            ? req.headers.authorization.split(" ")[1]
+            : undefined) ||
+          req.headers.token;
+      
         if (!token) {
           throw new Error("Unauthorized: No token provided for admin booking");
         }
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
         if (Number(decoded.role) !== 1) {
           throw new Error("Forbidden: Only admins can use ADMIN payment mode");
         }
-        // Ensure bookedUserId and user_id match the token's user ID
-        if (booking.bookedUserId !== decoded.id || billing.user_id !== decoded.id || payment.user_id !== decoded.id) {
+        // ensure consistency of user IDs
+        if (
+          booking.bookedUserId !== decoded.id ||
+          billing.user_id !== decoded.id ||
+          payment.user_id !== decoded.id
+        ) {
           throw new Error("Forbidden: User ID mismatch");
         }
       }
+      
 
       // Verify Razorpay payment only for RAZORPAY mode
       if (payment.payment_mode === "RAZORPAY") {
