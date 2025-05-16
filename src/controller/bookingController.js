@@ -55,188 +55,111 @@ const generatePNR = async () => {
 exports.completeBooking = async (req, res) => {
   const { bookedSeat, booking, billing, payment, passengers } = req.body;
 
-  console.log("completeBooking input:", {
-    bookedSeat,
-    booking,
-    billing,
-    payment,
-    passengers,
-  });
-
-  if (
-    !bookedSeat ||
-    !booking ||
-    !billing ||
-    !payment ||
-    !Array.isArray(passengers) ||
-    passengers.length === 0
-  ) {
+  // 1. Basic shape checks
+  if (!bookedSeat || !booking || !billing || !payment || !Array.isArray(passengers) || !passengers.length) {
     return res.status(400).json({ error: "Missing required booking sections" });
   }
   if (!dayjs(bookedSeat.bookDate, "YYYY-MM-DD", true).isValid()) {
-    return res
-      .status(400)
-      .json({ error: "Invalid bookDate format (YYYY-MM-DD)" });
+    return res.status(400).json({ error: "Invalid bookDate format (YYYY-MM-DD)" });
   }
 
-  const bookingFields = [
-    "pnr",
-    "bookingNo",
-    "contact_no",
-    "email_id",
-    "noOfPassengers",
-    "totalFare",
-    "bookedUserId",
-    "schedule_id",
-  ];
-  for (const f of bookingFields) {
-    if (!booking[f])
-      return res.status(400).json({ error: `Missing booking field: ${f}` });
+  // 2. Required booking fields
+  for (const f of ["pnr","bookingNo","contact_no","email_id","noOfPassengers","totalFare","bookedUserId","schedule_id"]) {
+    if (!booking[f]) return res.status(400).json({ error: `Missing booking field: ${f}` });
   }
-  if (!billing.user_id) {
-    return res.status(400).json({ error: "Missing billing field: user_id" });
+  if (!billing.user_id)      return res.status(400).json({ error: "Missing billing field: user_id" });
+  for (const f of ["user_id","payment_amount","payment_status","transaction_id","payment_id","payment_mode","order_id","razorpay_signature"]) {
+    if (!payment[f]) return res.status(400).json({ error: `Missing payment field: ${f}` });
   }
-  const paymentFields = [
-    "user_id",
-    "payment_amount",
-    "payment_status",
-    "transaction_id",
-    "payment_id",
-    "payment_mode",
-    "order_id",
-  ];
-  for (const f of paymentFields) {
-    if (!payment[f])
-      return res.status(400).json({ error: `Missing payment field: ${f}` });
-  }
-
   for (const p of passengers) {
-    if (!p.name || !p.title || !p.type || typeof p.age !== "number") {
-      return res
-        .status(400)
-        .json({ error: "Missing passenger fields: name, title, type, age" });
+    if (!p.name||!p.title||!p.type||typeof p.age!=="number") {
+      return res.status(400).json({ error:"Missing passenger fields: name, title, type, age" });
     }
   }
-
-  if (!["RAZORPAY", "ADMIN"].includes(payment.payment_mode)) {
-    return res
-      .status(400)
-      .json({ error: "Invalid payment_mode. Must be RAZORPAY or ADMIN" });
+  if (!["RAZORPAY","ADMIN"].includes(payment.payment_mode)) {
+    return res.status(400).json({ error: "Invalid payment_mode. Must be RAZORPAY or ADMIN" });
   }
 
   try {
     let result;
     await models.sequelize.transaction(async (t) => {
-      // Verify user role for ADMIN payment mode
+      // 3. ADMIN bookings must come from an admin token
       if (payment.payment_mode === "ADMIN") {
-        // Accept cookie, standard Bearer header, or custom token header:
-        const token =
-          req.cookies?.token ||
-          (req.headers.authorization?.startsWith("Bearer ")
-            ? req.headers.authorization.split(" ")[1]
-            : undefined) ||
-          req.headers.token;
-      
-        if (!token) {
-          throw new Error("Unauthorized: No token provided for admin booking");
-        }
+        const token = req.cookies?.token
+          || (req.headers.authorization?.startsWith("Bearer ") && req.headers.authorization.split(" ")[1])
+          || req.headers.token;
+        if (!token) throw new Error("Unauthorized: No token provided for admin booking");
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      
         if (Number(decoded.role) !== 1) {
           throw new Error("Forbidden: Only admins can use ADMIN payment mode");
         }
-        // ensure consistency of user IDs
         if (
           booking.bookedUserId !== decoded.id ||
-          billing.user_id !== decoded.id ||
-          payment.user_id !== decoded.id
-        ) {
-          throw new Error("Forbidden: User ID mismatch");
-        }
+          billing.user_id       !== decoded.id ||
+          payment.user_id       !== decoded.id
+        ) throw new Error("Forbidden: User ID mismatch");
       }
-      
 
-      // Verify Razorpay payment only for RAZORPAY mode
+      // 4. RAZORPAY signature check (always on in production)
       if (payment.payment_mode === "RAZORPAY") {
         const ok = await verifyPayment({
-          order_id: payment.order_id,
-          payment_id: payment.payment_id,
-          signature: payment.razorpay_signature,
+          order_id : payment.order_id,
+          payment_id : payment.payment_id,
+          signature : payment.razorpay_signature,
         });
         if (!ok) throw new Error("Invalid Razorpay signature");
       }
 
+      // 5. Check & increment seat counts
       const seatsLeft = await sumSeats({
         models,
         schedule_id: bookedSeat.schedule_id,
         bookDate: bookedSeat.bookDate,
-        transaction: t,
+        transaction: t
       });
       if (seatsLeft < bookedSeat.booked_seat) {
-        throw new Error(
-          `Only ${seatsLeft} seat(s) left on ${bookedSeat.bookDate} for schedule ${bookedSeat.schedule_id}`
-        );
+        throw new Error(`Only ${seatsLeft} seat(s) left on ${bookedSeat.bookDate}`);
       }
-
       const [row, created] = await models.BookedSeat.findOrCreate({
-        where: { schedule_id: bookedSeat.schedule_id, bookDate: bookedSeat.bookDate },
+        where   : { schedule_id: bookedSeat.schedule_id, bookDate: bookedSeat.bookDate },
         defaults: { booked_seat: bookedSeat.booked_seat },
         transaction: t,
-        lock: t.LOCK.UPDATE,
+        lock       : t.LOCK.UPDATE
       });
       if (!created) {
         await row.increment({ booked_seat: bookedSeat.booked_seat }, { transaction: t });
       }
 
-      const newBooking = await models.Booking.create(
-        {
-          ...booking,
-          bookingStatus: "CONFIRMED",
-          paymentStatus: "SUCCESS",
-          bookingNo: booking.bookingNo || `BOOK-${uuidv4().slice(0, 8)}`,
-        },
-        { transaction: t }
-      );
+      // 6. Create booking, billing, payment & passengers
+      const newBooking = await models.Booking.create({
+        ...booking,
+        bookingStatus: "CONFIRMED",
+        paymentStatus: "SUCCESS"
+      }, { transaction: t });
 
-      await models.Billing.create(
-        { ...billing, user_id: booking.bookedUserId },
-        { transaction: t }
-      );
-
-      await models.Payment.create(
-        { ...payment, booking_id: newBooking.id, user_id: booking.bookedUserId },
-        { transaction: t }
-      );
-
+      await models.Billing.create({ ...billing, user_id: booking.bookedUserId }, { transaction: t });
+      await models.Payment.create({ ...payment, booking_id: newBooking.id, user_id: booking.bookedUserId }, { transaction: t });
       await models.Passenger.bulkCreate(
-        passengers.map((p) => ({
+        passengers.map(p => ({
           bookingId: newBooking.id,
           title: p.title,
-          name: p.name,
-          dob: p.dob,
-          age: p.age,
-          type: p.type,
-        })),
-        { transaction: t }
+          name : p.name,
+          dob  : p.dob,
+          age  : p.age,
+          type : p.type
+        })), { transaction: t }
       );
 
-      const updatedSeatCounts = [
-        {
-          schedule_id: bookedSeat.schedule_id,
-          bookDate: bookedSeat.bookDate,
-          seatsLeft: await sumSeats({
-            models,
-            schedule_id: bookedSeat.schedule_id,
-            bookDate: bookedSeat.bookDate,
-            transaction: t,
-          }),
-        },
-      ];
-
+      // 7. Return updated seat counts & booking ID
+      const updatedSeatCounts = [{
+        schedule_id: bookedSeat.schedule_id,
+        bookDate   : bookedSeat.bookDate,
+        seatsLeft  : await sumSeats({ models, schedule_id: bookedSeat.schedule_id, bookDate: bookedSeat.bookDate, transaction: t })
+      }];
       result = {
-        bookingId: newBooking.id,
-        updatedSeatCounts,
-        bookingNo: newBooking.bookingNo,
+        bookingId   : newBooking.id,
+        bookingNo   : newBooking.bookingNo,
+        updatedSeatCounts
       };
     });
 

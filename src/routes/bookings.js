@@ -1,26 +1,30 @@
+// routes/bookingRoutes.js
 const express = require('express');
 const router = express.Router();
 const bookingController = require('../controller/bookingController');
 const { authenticate } = require('../middleware/auth');
 
-// Booking routes
+// Public
 router.get('/irctc-bookings', bookingController.getIrctcBookings);
-router.get('/summary', authenticate(), bookingController.getBookingSummary);
-router.get('/', authenticate(), bookingController.getBookings);
-router.get('/:id(\\d+)', authenticate(), bookingController.getBookingById);
-router.post('/', authenticate(), bookingController.createBooking);
-router.put('/:id(\\d+)', authenticate(), bookingController.updateBooking);
-router.delete('/:id(\\d+)', authenticate(), bookingController.deleteBooking);
-
-// ← remove authenticate() here so complete-booking is open
+router.get('/generate-pnr', bookingController.generatePNR);
 router.post('/complete-booking', bookingController.completeBooking);
 
+// All others require a valid JWT
+router.use(authenticate());
+
+router.get('/summary',          bookingController.getBookingSummary);
+router.get('/',                 bookingController.getBookings);
+router.get('/:id(\\d+)',        bookingController.getBookingById);
+router.post('/',                bookingController.createBooking);
+router.put('/:id(\\d+)',        bookingController.updateBooking);
+router.delete('/:id(\\d+)',     bookingController.deleteBooking);
+
+// ✔️ now protected
+
 router.post('/book-seats-irctc', bookingController.bookSeatsWithoutPayment);
-router.get('/generate-pnr', bookingController.generatePNR);
-router.get('/my', authenticate(), bookingController.getUserBookings);
+router.get('/my',                bookingController.getUserBookings);
 
 module.exports = router;
-
 
 
 
