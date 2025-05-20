@@ -1,5 +1,6 @@
+
 const { format, toZonedTime } = require('date-fns-tz');
-const { sumSeats } = require('../utils/seatUtils');
+const { getAvailableSeats } = require('../utils/seatUtils');
 const getModels = () => require('../model');
 
 async function getFlightSchedules(req, res) {
@@ -30,18 +31,23 @@ async function getFlightSchedules(req, res) {
           let viaStopIds = [];
           try {
             viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
-            viaStopIds = viaStopIds.filter(id => id && Number.isInteger(id) && id !== 0);
-          } catch {}
+            viaStopIds = viaStopIds.filter((id) => id && Number.isInteger(id) && id !== 0);
+          } catch (e) {
+            console.error('Error parsing via_stop_id:', e);
+          }
 
           let availableSeats = 0;
           try {
-            availableSeats = await sumSeats({
+            const seats = await getAvailableSeats({
               models,
               schedule_id: schedule.id,
               bookDate: departure_date,
               transaction: null,
             });
-          } catch {}
+            availableSeats = seats.length;
+          } catch (error) {
+            console.error('Error getting available seats:', error);
+          }
 
           output.push({
             ...schedule.toJSON(),
@@ -54,25 +60,30 @@ async function getFlightSchedules(req, res) {
     } else {
       const bookDate = req.query.date || format(new Date(), 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
       const results = await Promise.all(
-        rows.map(async schedule => {
+        rows.map(async (schedule) => {
           const flight = schedule.Flight;
           if (!flight) return null;
 
           let viaStopIds = [];
           try {
             viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
-            viaStopIds = viaStopIds.filter(id => id && Number.isInteger(id) && id !== 0);
-          } catch {}
+            viaStopIds = viaStopIds.filter((id) => id && Number.isInteger(id) && id !== 0);
+          } catch (e) {
+            console.error('Error parsing via_stop_id:', e);
+          }
 
           let availableSeats = 0;
           try {
-            availableSeats = await sumSeats({
+            const seats = await getAvailableSeats({
               models,
               schedule_id: schedule.id,
               bookDate,
               transaction: null,
             });
-          } catch {}
+            availableSeats = seats.length;
+          } catch (error) {
+            console.error('Error getting available seats:', error);
+          }
 
           return {
             ...schedule.toJSON(),
@@ -82,7 +93,7 @@ async function getFlightSchedules(req, res) {
           };
         })
       );
-      output = results.filter(item => item);
+      output = results.filter((item) => item);
     }
 
     res.json(output);
@@ -97,7 +108,7 @@ async function addFlightSchedule(req, res) {
   const { via_stop_id, ...body } = req.body;
   try {
     const validViaStopIds = via_stop_id
-      ? JSON.parse(via_stop_id).filter(id => id && Number.isInteger(id) && id !== 0)
+      ? JSON.parse(via_stop_id).filter((id) => id && Number.isInteger(id) && id !== 0)
       : [];
 
     const schedule = await models.FlightSchedule.create({
@@ -119,7 +130,7 @@ async function updateFlightSchedule(req, res) {
     if (!schedule) return res.status(404).json({ error: 'Not found' });
 
     const validViaStopIds = via_stop_id
-      ? JSON.parse(via_stop_id).filter(id => id && Number.isInteger(id) && id !== 0)
+      ? JSON.parse(via_stop_id).filter((id) => id && Number.isInteger(id) && id !== 0)
       : [];
 
     await schedule.update({
@@ -197,18 +208,6 @@ async function updateFlightStops(req, res) {
     res.status(500).json({ error: 'Failed to update flight stops' });
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 module.exports = {
   getFlightSchedules,

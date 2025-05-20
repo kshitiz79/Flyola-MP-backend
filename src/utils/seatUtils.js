@@ -1,3 +1,4 @@
+
 const SEG_CACHE = new WeakMap();
 
 function getRoute(flight) {
@@ -10,11 +11,15 @@ function getRoute(flight) {
   return route;
 }
 
-exports.sumSeats = async function sumSeats({ models, schedule_id, bookDate, transaction = null }) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(bookDate)) {
-    throw new Error('bookDate must be YYYY-MM-DD');
+function generateSeatLabels(seatLimit) {
+  const seats = [];
+  for (let i = 1; i <= seatLimit; i++) {
+    seats.push(`S${i}`);
   }
+  return seats;
+}
 
+async function getAvailableSeats({ models, schedule_id, bookDate, transaction = null }) {
   const schedule = await models.FlightSchedule.findByPk(schedule_id, {
     include: [{ model: models.Flight }],
     transaction,
@@ -24,41 +29,62 @@ exports.sumSeats = async function sumSeats({ models, schedule_id, bookDate, tran
   }
   const flight = schedule.Flight;
 
+  const allSeats = generateSeatLabels(flight.seat_limit);
+
+  // Get all schedules for this flight
+  const allSchedules = await models.FlightSchedule.findAll({
+    where: { flight_id: flight.id },
+    attributes: ['id', 'departure_airport_id', 'arrival_airport_id'],
+    transaction,
+  });
+
+  // Get flight route for segment validation
   const route = getRoute(flight);
   const depIdx = route.indexOf(schedule.departure_airport_id);
   const arrIdx = route.indexOf(schedule.arrival_airport_id);
   if (depIdx < 0 || arrIdx < 0 || depIdx >= arrIdx) {
-    throw new Error(`Invalid dep/arr for schedule ${schedule_id}`);
+    throw new Error(`Invalid departure/arrival for schedule ${schedule_id}`);
   }
 
-  const allSchedules = await models.FlightSchedule.findAll({
-    where: { flight_id: flight.id },
-    transaction,
-  });
+  // Filter schedules that overlap with the requested segment
+  const relevantScheduleIds = allSchedules
+    .filter((s) => {
+      const sDepIdx = route.indexOf(s.departure_airport_id);
+      const sArrIdx = route.indexOf(s.arrival_airport_id);
+      return (
+        sDepIdx !== -1 &&
+        sArrIdx !== -1 &&
+        sDepIdx < sArrIdx &&
+        !(sArrIdx < depIdx || sDepIdx > arrIdx)
+      );
+    })
+    .map((s) => s.id);
 
-  const bookedRows = await models.BookedSeat.findAll({
+  // Get all booked seats for relevant schedules on bookDate
+  const bookedSeatsRows = await models.BookedSeat.findAll({
     where: {
-      schedule_id: allSchedules.map((s) => s.id),
+      schedule_id: relevantScheduleIds,
       bookDate,
     },
+    attributes: ['seat_label'],
     transaction,
   });
 
-  const loadPerSegment = Array(route.length - 1).fill(0);
-  for (const row of bookedRows) {
-    const seg = allSchedules.find((s) => s.id === row.schedule_id);
-    if (!seg) continue;
-    const start = route.indexOf(seg.departure_airport_id);
-    const end = route.indexOf(seg.arrival_airport_id);
-    if (start < 0 || end < 0 || start >= end) continue;
+  const bookedSeats = new Set(bookedSeatsRows.map((row) => row.seat_label));
+  const availableSeats = allSeats.filter((seat) => !bookedSeats.has(seat));
+  return availableSeats;
+}
 
-    for (let i = start; i < end; i++) {
-      loadPerSegment[i] = Math.max(loadPerSegment[i], row.booked_seat);
-    }
+async function sumSeats({ models, schedule_id, bookDate, transaction = null }) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(bookDate)) {
+    throw new Error('bookDate must be YYYY-MM-DD');
   }
+  const availableSeats = await getAvailableSeats({ models, schedule_id, bookDate, transaction });
+  return availableSeats.length;
+}
 
-  const sliceLoad = loadPerSegment.slice(depIdx, arrIdx);
-  const maxBooked = Math.max(0, ...sliceLoad);
-
-  return Math.max(0, flight.seat_limit - maxBooked);
+module.exports = {
+  sumSeats,
+  generateSeatLabels,
+  getAvailableSeats,
 };

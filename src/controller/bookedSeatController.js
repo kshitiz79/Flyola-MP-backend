@@ -1,10 +1,10 @@
+// controllers/bookedSeatController.js
 const { Op } = require('sequelize');
 const dayjs = require('dayjs');
-const { sumSeats } = require('../utils/seatUtils');
+const { sumSeats, getAvailableSeats } = require('../utils/seatUtils');
 const { getRouteAirports } = require('./flightController');
 
 const getModels = () => require('../model');
-
 
 async function getWrappedScheduleIds(schedule_id) {
   const models = getModels();
@@ -30,14 +30,11 @@ async function getWrappedScheduleIds(schedule_id) {
     );
   }
 
-  /* All schedules of this flight */
   const schedules = await models.FlightSchedule.findAll({
     where: { flight_id: flight.id },
     attributes: ['id', 'departure_airport_id', 'arrival_airport_id'],
   });
 
-  /* Pick those whose leg *starts no later* than ours and
-     *ends no earlier* than ours (i.e., fully wrap our slice). */
   const ids = schedules
     .filter((s) => {
       const sDep = route.indexOf(s.departure_airport_id);
@@ -45,36 +42,39 @@ async function getWrappedScheduleIds(schedule_id) {
       return (
         sDep !== -1 &&
         sArr !== -1 &&
-        sDep <= depIdx && // starts same or earlier
-        sArr >= arrIdx && // ends same or later
-        sDep < sArr // sanity: forward leg
+        sDep <= depIdx &&
+        sArr >= arrIdx &&
+        sDep < sArr
       );
     })
     .map((s) => s.id);
 
-    return [schedule_id]; // de-duplicate for safety
+  return [...new Set([schedule_id, ...ids])]; // Include original schedule_id
 }
 
 exports.getWrappedScheduleIds = getWrappedScheduleIds;
 
-
 exports.getBookedSeats = async (req, res) => {
   const models = getModels();
+  const { schedule_id, date } = req.query;
   try {
+    if (!models.BookedSeat) {
+      throw new Error('BookedSeat model is not defined');
+    }
+    const where = {};
+    if (schedule_id) where.schedule_id = schedule_id;
+    if (date) where.bookDate = date;
     const rows = await models.BookedSeat.findAll({
-      include: [{ model: models.FlightSchedule }],
+      where,
+      attributes: ['seat_label'],
     });
-    res.json(rows);
+    const seatLabels = rows.map((row) => row.seat_label);
+    res.json({ bookedSeats: seatLabels });
   } catch (err) {
-    console.error('Error fetching booked seats:', err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('getBookedSeats error:', err.stack);
+    res.status(500).json({ error: `Failed to fetch booked seats: ${err.message}` });
   }
 };
-
-
-
-
-
 
 exports.getBookedSeatById = async (req, res) => {
   const models = getModels();
@@ -90,17 +90,12 @@ exports.getBookedSeatById = async (req, res) => {
   }
 };
 
-
 exports.createBookedSeat = async (req, res) => {
   const models = getModels();
-  const { bookDate, schedule_id, booked_seat } = req.body;
+  const { bookDate, schedule_id, seat_label } = req.body;
 
-  // Validation
-  if (!bookDate || !schedule_id || !booked_seat) {
-    return res.status(400).json({ error: 'bookDate, schedule_id, and booked_seat are required' });
-  }
-  if (!Number.isInteger(booked_seat) || booked_seat <= 0) {
-    return res.status(400).json({ error: 'booked_seat must be a positive integer' });
+  if (!bookDate || !schedule_id || !seat_label) {
+    return res.status(400).json({ error: 'bookDate, schedule_id, and seat_label are required' });
   }
   if (!dayjs(bookDate, 'YYYY-MM-DD', true).isValid()) {
     return res.status(400).json({ error: 'Invalid bookDate format (YYYY-MM-DD expected)' });
@@ -108,39 +103,38 @@ exports.createBookedSeat = async (req, res) => {
 
   const tx = await models.sequelize.transaction();
   try {
-    // Verify schedule
     const schedule = await models.FlightSchedule.findByPk(schedule_id, { transaction: tx });
     if (!schedule) throw new Error('Schedule not found');
 
-    // Check availability
-    const seatsLeft = await sumSeats({ models, schedule_id, bookDate, transaction: tx });
-    if (seatsLeft < booked_seat) {
-      throw new Error(`Only ${seatsLeft} seat(s) left on ${bookDate} for schedule ${schedule_id}`);
+    const availableSeats = await getAvailableSeats({ models, schedule_id, bookDate, transaction: tx });
+    if (!availableSeats.includes(seat_label)) {
+      throw new Error(`Seat ${seat_label} is not available`);
     }
 
-    // Upsert BookedSeat
-    const [row, created] = await models.BookedSeat.findOrCreate({
-      where: { schedule_id, bookDate },
-      defaults: { booked_seat },
-      transaction: tx,
-      lock: tx.LOCK.UPDATE,
-    });
-    if (!created) await row.increment({ booked_seat }, { transaction: tx });
+    const row = await models.BookedSeat.create(
+      {
+        schedule_id,
+        bookDate,
+        seat_label,
+        booked_seat: 1,
+      },
+      { transaction: tx }
+    );
 
     await tx.commit();
 
-    // Re-compute availability
-    const updatedAvailableSeats = await sumSeats({ models, schedule_id, bookDate });
-
-    // Emit WebSocket event
+    const updatedAvailableSeats = await getAvailableSeats({ models, schedule_id, bookDate });
     if (req.io) {
-      req.io.emit('seats-updated', { updates: [{ id: schedule_id, availableSeats: updatedAvailableSeats }] });
+      req.io.emit('seats-updated', {
+        schedule_id,
+        bookDate,
+        availableSeats: updatedAvailableSeats,
+      });
     }
 
     res.status(201).json({
       ...row.toJSON(),
-      updatedAvailableSeats,
-      affectedSchedules: [{ schedule_id, bookDate, seatsLeft: updatedAvailableSeats }],
+      availableSeats: updatedAvailableSeats,
     });
   } catch (err) {
     await tx.rollback();
@@ -152,14 +146,10 @@ exports.createBookedSeat = async (req, res) => {
 exports.updateBookedSeat = async (req, res) => {
   const models = getModels();
   const { id } = req.params;
-  const { bookDate, schedule_id, booked_seat } = req.body;
+  const { bookDate, schedule_id, seat_label } = req.body;
 
-  // Validate
-  if (!bookDate || !schedule_id || !booked_seat) {
-    return res.status(400).json({ error: 'bookDate, schedule_id, and booked_seat are required' });
-  }
-  if (!Number.isInteger(booked_seat) || booked_seat <= 0) {
-    return res.status(400).json({ error: 'booked_seat must be a positive integer' });
+  if (!bookDate || !schedule_id || !seat_label) {
+    return res.status(400).json({ error: 'bookDate, schedule_id, and seat_label are required' });
   }
   if (!dayjs(bookDate, 'YYYY-MM-DD', true).isValid()) {
     return res.status(400).json({ error: 'Invalid bookDate format (expected YYYY-MM-DD)' });
@@ -167,79 +157,45 @@ exports.updateBookedSeat = async (req, res) => {
 
   const transaction = await models.sequelize.transaction();
   try {
-    // Find existing booked seat
     const row = await models.BookedSeat.findByPk(id, { transaction });
     if (!row) throw new Error('Booked seat not found');
 
-    // Verify new schedule
     const schedule = await models.FlightSchedule.findByPk(schedule_id, { transaction });
     if (!schedule) throw new Error('Schedule not found');
 
     const oldScheduleId = row.schedule_id;
     const oldBookDate = row.bookDate;
-    const oldBookedSeat = row.booked_seat;
+    const oldSeatLabel = row.seat_label;
 
-    // Check availability
-    const seatsLeft = await sumSeats({ models, schedule_id, bookDate, transaction });
-    const adjustment = oldScheduleId === schedule_id && oldBookDate === bookDate ? oldBookedSeat : 0;
-    if (seatsLeft + adjustment < booked_seat) {
-      throw new Error(`Only ${seatsLeft + adjustment} seat(s) left on ${bookDate} for schedule ${schedule_id}`);
+    const availableSeats = await getAvailableSeats({ models, schedule_id, bookDate, transaction });
+    if (!availableSeats.includes(seat_label)) {
+      throw new Error(`Seat ${seat_label} is not available`);
     }
 
-    // Update or create
-    if (oldScheduleId === schedule_id && oldBookDate === bookDate) {
-      await row.update({ booked_seat }, { transaction });
-    } else {
-      // Clean up old booking
-      const oldBooking = await models.BookedSeat.findOne({
-        where: { schedule_id: oldScheduleId, bookDate: oldBookDate },
-        transaction,
-        lock: transaction.LOCK.UPDATE,
-      });
-      if (oldBooking) {
-        const newBookedSeat = oldBooking.booked_seat - oldBookedSeat;
-        if (newBookedSeat <= 0) {
-          await oldBooking.destroy({ transaction });
-        } else {
-          await oldBooking.update({ booked_seat: newBookedSeat }, { transaction });
-        }
-      }
-
-      // Create or update new booking
-      const [newBooking, created] = await models.BookedSeat.findOrCreate({
-        where: { schedule_id, bookDate },
-        defaults: { booked_seat },
-        transaction,
-        lock: transaction.LOCK.UPDATE,
-      });
-      if (!created) {
-        await newBooking.update({ booked_seat }, { transaction });
-      }
-    }
+    await row.update({ schedule_id, bookDate, seat_label }, { transaction });
 
     await transaction.commit();
 
-    // Update seat counts
-    const updates = [{
-      id: schedule_id,
-      availableSeats: await sumSeats({ models, schedule_id, bookDate, transaction: null }),
-    }];
+    const updates = [
+      {
+        id: schedule_id,
+        availableSeats: await getAvailableSeats({ models, schedule_id, bookDate }),
+      },
+    ];
+    if (oldScheduleId !== schedule_id || oldBookDate !== bookDate) {
+      updates.push({
+        id: oldScheduleId,
+        availableSeats: await getAvailableSeats({ models, schedule_id: oldScheduleId, bookDate: oldBookDate }),
+      });
+    }
 
-    // Emit WebSocket event
     if (req.io) {
       req.io.emit('seats-updated', { updates });
-    } else {
-      console.warn('WebSocket (req.io) not available, skipping seats-updated event');
     }
 
     res.json({
       message: 'Booked seat updated successfully',
-      updatedAvailableSeats: updates[0].availableSeats,
-      affectedSchedules: updates.map((sc) => ({
-        schedule_id: sc.id,
-        bookDate,
-        seatsLeft: sc.availableSeats,
-      })),
+      availableSeats: updates.find((u) => u.id === schedule_id).availableSeats,
     });
   } catch (err) {
     await transaction.rollback();
@@ -259,45 +215,23 @@ exports.deleteBookedSeat = async (req, res) => {
 
     const schedule_id = row.schedule_id;
     const bookDate = row.bookDate;
-    const booked_seat = row.booked_seat;
 
-    // Update or delete the booking for this schedule only
-    const existingBooking = await models.BookedSeat.findOne({
-      where: { schedule_id, bookDate },
-      transaction,
-      lock: transaction.LOCK.UPDATE,
-    });
-    if (existingBooking) {
-      const newBookedSeat = existingBooking.booked_seat - booked_seat;
-      if (newBookedSeat <= 0) {
-        await existingBooking.destroy({ transaction });
-      } else {
-        await existingBooking.update({ booked_seat: newBookedSeat }, { transaction });
-      }
-    }
+    await row.destroy({ transaction });
 
     await transaction.commit();
 
-    // Calculate updated seat counts
-    const updates = [{
-      id: schedule_id,
-      availableSeats: await sumSeats({ models, schedule_id, bookDate, transaction: null }),
-    }];
-
-    // Emit WebSocket event
+    const updatedAvailableSeats = await getAvailableSeats({ models, schedule_id, bookDate });
     if (req.io) {
-      req.io.emit('seats-updated', { updates });
-    } else {
-      console.warn('WebSocket (req.io) not available, skipping seats-updated event');
+      req.io.emit('seats-updated', {
+        schedule_id,
+        bookDate,
+        availableSeats: updatedAvailableSeats,
+      });
     }
 
     res.json({
       message: 'Booked seat deleted successfully',
-      affectedSchedules: updates.map((sc) => ({
-        schedule_id: sc.id,
-        bookDate,
-        seatsLeft: sc.availableSeats,
-      })),
+      availableSeats: updatedAvailableSeats,
     });
   } catch (err) {
     await transaction.rollback();
@@ -305,27 +239,5 @@ exports.deleteBookedSeat = async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 module.exports = exports;

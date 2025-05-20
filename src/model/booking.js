@@ -96,15 +96,11 @@ const Booking = sequelize.define(
 );
 
 Booking.associate = (models) => {
-  Booking.belongsTo(models.FlightSchedule, {
-    foreignKey: 'schedule_id',
-    targetKey: 'id',
-    onDelete: 'SET NULL',
-  });
+  Booking.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id', targetKey: 'id', onDelete: 'SET NULL' });
   Booking.hasMany(models.Payment, { foreignKey: 'booking_id', sourceKey: 'id' });
   Booking.belongsTo(models.User, { foreignKey: 'bookedUserId', targetKey: 'id' });
   Booking.hasMany(models.Passenger, { foreignKey: 'bookingId', sourceKey: 'id' });
-  Booking.hasOne(models.BookedSeat, { foreignKey: 'schedule_id', sourceKey: 'schedule_id' });
+  Booking.hasMany(models.BookedSeat, { foreignKey: 'booking_id', sourceKey: 'id' }); // Fixed relationship
 };
 
 module.exports = Booking;

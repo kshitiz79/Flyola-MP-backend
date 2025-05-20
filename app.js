@@ -47,9 +47,9 @@ app.use('/payments', require('./src/routes/payments'));
 // No changes needed, but ensure this line exists:
 app.use('/bookings', require('./src/routes/bookings'));
 
+app.use('/booked-seat', require('./src/routes/seatRoutes'));
 
-
-app.use('/booked-seat', require('./src/routes/bookedSeates'));
+// app.use('/booked-seat', require('./src/routes/bookedSeates'));
 
 
 app.use('/passenger', require('./src/routes/passengerRoutes'));
@@ -66,7 +66,7 @@ app.use('/flights', flightRoutes);
 const userRoutes = require('./src/routes/users');
 app.use('/users', userRoutes);
 
-
+app.use('/booked-seat', require('./src/routes/seatRoutes'));
 
 
 const flightScheduleRoutes = require('./src/routes/flightScheduleRoutes');
