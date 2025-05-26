@@ -72,7 +72,24 @@ async function completeBooking(req, res) {
     return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY, ADMIN, or DUMMY' });
   }
 
+  const totalFare = parseFloat(booking.totalFare);
+  const paymentAmount = parseFloat(payment.payment_amount);
+  if (!Number.isFinite(totalFare) || totalFare <= 0) {
+    return res.status(400).json({ error: 'Total fare must be a positive number' });
+  }
+  if (totalFare !== paymentAmount) {
+    return res.status(400).json({ error: 'Total fare does not match payment amount' });
+  }
+
   try {
+    let agent = null;
+    if (booking.agentId) {
+      agent = await models.Agent.findByPk(booking.agentId);
+      if (!agent) {
+        return res.status(400).json({ error: `Invalid agentId: ${booking.agentId}` });
+      }
+    }
+
     let result;
     await models.sequelize.transaction(async (t) => {
       if (payment.payment_mode === 'ADMIN') {
@@ -154,6 +171,10 @@ async function completeBooking(req, res) {
         { transaction: t }
       );
 
+      if (agent) {
+        await agent.increment('no_of_ticket_booked', { by: booking.noOfPassengers, transaction: t });
+      }
+
       const updatedAvailableSeats = await getAvailableSeats({
         models,
         schedule_id: bookedSeat.schedule_id,
@@ -168,7 +189,6 @@ async function completeBooking(req, res) {
       };
     });
 
-    // Emit WebSocket event
     if (req.io) {
       req.io.emit('seats-updated', {
         schedule_id: bookedSeat.schedule_id,
@@ -187,7 +207,6 @@ async function completeBooking(req, res) {
 async function bookSeatsWithoutPayment(req, res) {
   const { bookedSeat, booking, passengers } = req.body;
 
-  // Validate request body
   if (!bookedSeat || !booking || !Array.isArray(passengers) || passengers.length === 0) {
     return res.status(400).json({ success: false, error: 'Missing required booking sections' });
   }
@@ -195,7 +214,7 @@ async function bookSeatsWithoutPayment(req, res) {
     return res.status(400).json({ success: false, error: 'seat_labels must be an array matching the number of passengers' });
   }
 
-  const bookingRequiredFields = ['contact_no', 'email_id', 'noOfPassengers', 'totalFare', 'bookedUserId', 'schedule_id', 'bookDate'];
+  const bookingRequiredFields = ['contact_no', 'email_id', 'noOfPassengers', 'totalFare', 'bookedUserId', 'schedule_id', 'bookDate', 'agentId'];
   for (const f of bookingRequiredFields) {
     if (!booking[f]) {
       return res.status(400).json({ success: false, error: `Missing booking field: ${f}` });
@@ -212,10 +231,22 @@ async function bookSeatsWithoutPayment(req, res) {
     return res.status(400).json({ success: false, error: 'Invalid bookDate format (YYYY-MM-DD)' });
   }
 
+  const totalFare = parseFloat(booking.totalFare);
+  if (!Number.isFinite(totalFare) || totalFare <= 0) {
+    return res.status(400).json({ success: false, error: 'Total fare must be a positive number' });
+  }
+
   try {
+    const agent = await models.Agent.findByPk(booking.agentId);
+    if (!agent) {
+      return res.status(400).json({ success: false, error: `Invalid agentId: ${booking.agentId}` });
+    }
+    if (Number(agent.wallet_amount) < totalFare) {
+      return res.status(400).json({ success: false, error: `Insufficient wallet balance: ${agent.wallet_amount} < ${totalFare}` });
+    }
+
     let result;
     await models.sequelize.transaction(async (t) => {
-      // Validate available seats
       const availableSeats = await getAvailableSeats({
         models,
         schedule_id: bookedSeat.schedule_id,
@@ -231,23 +262,19 @@ async function bookSeatsWithoutPayment(req, res) {
         }
       }
 
-      // Generate PNR and booking number
       const pnr = await generatePNR();
       const bookingNo = `BOOK-${uuidv4().slice(0, 8)}`;
 
-      // Create booking
       const newBooking = await models.Booking.create(
         {
           pnr,
           bookingNo,
           ...booking,
           bookingStatus: 'SUCCESS',
-          agent_type: 'IRCTC',
         },
         { transaction: t }
       );
 
-      // Create booked seats
       for (const seat of bookedSeat.seat_labels) {
         await models.BookedSeat.create(
           {
@@ -261,7 +288,6 @@ async function bookSeatsWithoutPayment(req, res) {
         );
       }
 
-      // Create passengers
       await models.Passenger.bulkCreate(
         passengers.map((p) => ({
           bookingId: newBooking.id,
@@ -274,7 +300,9 @@ async function bookSeatsWithoutPayment(req, res) {
         { transaction: t }
       );
 
-      // Get updated available seats
+      await agent.decrement('wallet_amount', { by: totalFare, transaction: t });
+      await agent.increment('no_of_ticket_booked', { by: booking.noOfPassengers, transaction: t });
+
       const updatedAvailableSeats = await getAvailableSeats({
         models,
         schedule_id: bookedSeat.schedule_id,
@@ -282,7 +310,6 @@ async function bookSeatsWithoutPayment(req, res) {
         transaction: t,
       });
 
-      // Prepare result, including all request data
       result = {
         pnr,
         bookingNo,
@@ -291,10 +318,10 @@ async function bookSeatsWithoutPayment(req, res) {
         bookedSeat,
         booking,
         passengers,
+        wallet_amount: Number(agent.wallet_amount) - totalFare,
       };
     });
 
-    // Emit WebSocket event
     if (req.io) {
       console.log('Emitting seats-updated:', {
         schedule_id: bookedSeat.schedule_id,
@@ -308,7 +335,6 @@ async function bookSeatsWithoutPayment(req, res) {
       });
     }
 
-    // Return success response with all data
     return res.status(201).json({
       success: true,
       data: result,
@@ -321,7 +347,85 @@ async function bookSeatsWithoutPayment(req, res) {
     });
   }
 }
-//
+
+async function getIrctcBookings(req, res) {
+  console.log('Reached getIrctcBookings endpoint');
+  try {
+    const irctcAgent = await models.Agent.findOne({ where: { agentId: 'IRCTC' } });
+    if (!irctcAgent) {
+      return res.status(404).json({ error: 'IRCTC agent not found' });
+    }
+
+    const bookings = await models.Booking.findAll({
+      where: { agentId: irctcAgent.id },
+      include: [
+        models.Passenger,
+        models.FlightSchedule,
+        models.BookedSeat,
+        models.Payment,
+        models.Agent,
+      ],
+    });
+
+    console.log('IRCTC Bookings found:', bookings.length, bookings.map(b => b.toJSON()));
+    if (!bookings || bookings.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    const bookingsWithBilling = await Promise.all(
+      bookings.map(async (booking) => {
+        const billing = await models.Billing.findOne({ where: { user_id: booking.bookedUserId } });
+        return {
+          ...booking.toJSON(),
+          seatLabels: booking.BookedSeats.map((s) => s.seat_label),
+          billing: billing ? billing.toJSON() : null,
+        };
+      })
+    );
+
+    res.json(bookingsWithBilling);
+  } catch (err) {
+    console.error('getIrctcBookings error:', err);
+    res.status(500).json({ error: 'Failed to fetch IRCTC bookings' });
+  }
+}
+
+async function getUserBookings(req, res) {
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({ error: 'Unauthorized: No valid user token provided' });
+  }
+
+  const userId = req.user.id;
+  try {
+    const userBookings = await models.Booking.findAll({
+      where: { bookedUserId: userId },
+      include: [
+        { model: models.FlightSchedule, required: false },
+        { model: models.Passenger, required: false },
+        { model: models.BookedSeat, attributes: ['seat_label'], required: false },
+        { model: models.Payment, as: 'Payments', required: false },
+        { model: models.Agent, required: false },
+      ],
+      order: [['bookDate', 'DESC']],
+    });
+
+    const bookingsWithExtras = await Promise.all(
+      userBookings.map(async (b) => {
+        const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
+        return {
+          ...b.toJSON(),
+          seatLabels: b.BookedSeats.map((s) => s.seat_label),
+          billing: billing ? billing.toJSON() : null,
+        };
+      })
+    );
+
+    return res.status(200).json(bookingsWithExtras);
+  } catch (err) {
+    console.error('getUserBookings error:', err);
+    return res.status(500).json({ error: 'Failed to fetch your bookings' });
+  }
+}
 
 async function generatePNRController(req, res) {
   try {
@@ -347,14 +451,11 @@ async function getBookings(req, res) {
     const bookings = await models.Booking.findAll({
       where,
       include: [
-        {
-          model: models.BookedSeat,
-          attributes: ['seat_label'],
-          required: false,
-        },
+        { model: models.BookedSeat, attributes: ['seat_label'], required: false },
         { model: models.Passenger, required: false },
         { model: models.FlightSchedule, required: false },
         { model: models.Payment, required: false },
+        { model: models.Agent, required: false },
       ],
       order: [['created_at', 'DESC']],
     });
@@ -368,14 +469,14 @@ async function getBookings(req, res) {
           }
           return {
             ...b.toJSON(),
-            seatLabels: b.BookedSeats.map((s) => s.seat_label), // Added
+            seatLabels: b.BookedSeats.map((s) => s.seat_label),
             billing: billing?.toJSON() || null,
           };
         } catch (billingErr) {
           console.warn(`Failed to fetch billing for booking ${b.id}:`, billingErr.message);
           return {
             ...b.toJSON(),
-            seatLabels: b.BookedSeats.map((s) => s.seat_label), // Added
+            seatLabels: b.BookedSeats.map((s) => s.seat_label),
             billing: null,
           };
         }
@@ -397,17 +498,17 @@ async function getBookingById(req, res) {
     let booking;
     if (id) {
       booking = await models.Booking.findByPk(id, {
-        include: [models.Passenger, models.FlightSchedule, models.BookedSeat, models.Payment],
+        include: [models.Passenger, models.FlightSchedule, models.BookedSeat, models.Payment, models.Agent],
       });
     } else if (pnr) {
       booking = await models.Booking.findOne({
         where: { pnr },
-        include: [models.Passenger, models.FlightSchedule, models.BookedSeat, models.Payment],
+        include: [models.Passenger, models.FlightSchedule, models.BookedSeat, models.Payment, models.Agent],
       });
     } else if (bookingNo) {
       booking = await models.Booking.findOne({
         where: { bookingNo },
-        include: [models.Passenger, models.FlightSchedule, models.BookedSeat, models.Payment],
+        include: [models.Passenger, models.FlightSchedule, models.BookedSeat, models.Payment, models.Agent],
       });
     } else {
       return res.status(400).json({ error: 'Must provide id, pnr, or bookingNo' });
@@ -420,6 +521,7 @@ async function getBookingById(req, res) {
     const billing = await models.Billing.findOne({ where: { user_id: booking.bookedUserId } });
     booking = {
       ...booking.toJSON(),
+      seatLabels: booking.BookedSeats.map((s) => s.seat_label),
       billing: billing ? billing.toJSON() : null,
     };
 
@@ -430,64 +532,19 @@ async function getBookingById(req, res) {
   }
 }
 
-async function getIrctcBookings(req, res) {
-  console.log('Reached getIrctcBookings endpoint');
-  try {
-    const bookings = await models.Booking.findAll({
-      where: {
-        agent_type: ['IRCTC'],
-      },
-      include: [
-        models.Passenger,
-        models.FlightSchedule,
-        models.BookedSeat,
-        models.Payment,
-      ],
-    });
-    console.log('IRCTC Bookings found:', bookings.length, bookings.map(b => b.toJSON()));
-    if (!bookings || bookings.length === 0) {
-      return res.status(200).json([]);
-    }
-    const bookingsWithBilling = await Promise.all(
-      bookings.map(async (booking) => {
-        const billing = await models.Billing.findOne({ where: { user_id: booking.bookedUserId } });
-        return {
-          ...booking.toJSON(),
-          billing: billing ? billing.toJSON() : null,
-        };
-      })
-    );
-    res.json(bookingsWithBilling);
-  } catch (err) {
-    console.error('getIrctcBookings error:', err);
-    res.status(500).json({ error: 'Failed to fetch IRCTC bookings' });
-  }
-}
-
-async function getUserBookings(req, res) {
-  const userId = req.user.id;
-  try {
-    const userBookings = await models.Booking.findAll({
-      where: { bookedUserId: userId },
-      include: [
-        models.FlightSchedule,
-        models.Passenger,
-        models.BookedSeat,
-        models.Payment,
-      ],
-      order: [['bookDate', 'DESC']],
-    });
-
-    return res.json(userBookings);
-  } catch (err) {
-    console.error('getUserBookings error:', err);
-    return res.status(500).json({ error: 'Failed to fetch your bookings' });
-  }
-}
-
 async function createBooking(req, res) {
   try {
+    const { agentId } = req.body;
+    if (agentId) {
+      const agent = await models.Agent.findByPk(agentId);
+      if (!agent) {
+        return res.status(400).json({ error: `Invalid agentId: ${agentId}` });
+      }
+    }
     const booking = await models.Booking.create(req.body);
+    if (agentId) {
+      await agent.increment('no_of_ticket_booked', { by: req.body.noOfPassengers });
+    }
     res.status(201).json(booking);
   } catch (err) {
     console.error(err);
@@ -500,7 +557,18 @@ async function updateBooking(req, res) {
   try {
     const booking = await models.Booking.findByPk(id);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    const { agentId } = req.body;
+    if (agentId) {
+      const agent = await models.Agent.findByPk(agentId);
+      if (!agent) {
+        return res.status(400).json({ error: `Invalid agentId: ${agentId}` });
+      }
+    }
     await booking.update(req.body);
+    if (agentId) {
+      const agent = await models.Agent.findByPk(agentId);
+      await agent.increment('no_of_ticket_booked', { by: booking.noOfPassengers });
+    }
     res.json({ message: 'Booking updated', booking });
   } catch (err) {
     console.error(err);
@@ -549,10 +617,311 @@ async function getBookingSummary(req, res) {
   }
 }
 
+async function getBookingByPnr(req, res) {
+  const { pnr } = req.query;
+
+  try {
+    if (!pnr || typeof pnr !== 'string' || pnr.length < 6) {
+      return res.status(400).json({ error: 'Invalid PNR. Must be a string of at least 6 characters.' });
+    }
+
+    const booking = await models.Booking.findOne({
+      where: { pnr },
+      include: [
+        { model: models.BookedSeat, attributes: ['seat_label'], required: false },
+        { model: models.Passenger, required: false },
+        { model: models.FlightSchedule, required: false },
+        { model: models.Payment, as: 'Payments', required: false },
+        { model: models.Agent, required: false },
+      ],
+    });
+
+    if (!booking) {
+      return res.status(404).json({ error: `Booking not found for PNR: ${pnr}` });
+    }
+
+    const billing = await models.Billing.findOne({ where: { user_id: booking.bookedUserId } });
+
+    const response = {
+      ...booking.toJSON(),
+      seatLabels: booking.BookedSeats.map((s) => s.seat_label),
+      billing: billing ? billing.toJSON() : null,
+    };
+
+    return res.status(200).json(response);
+  } catch (err) {
+    console.error('getBookingByPnr error:', err);
+    return res.status(500).json({ error: 'Failed to fetch booking' });
+  }
+}
+
+async function cancelIrctcBooking(req, res) {
+  const { id } = req.params;
+  let t;
+
+  try {
+    t = await models.sequelize.transaction();
+    const booking = await models.Booking.findByPk(id, {
+      include: [
+        { model: models.FlightSchedule, required: true },
+        { model: models.BookedSeat, required: true },
+        { model: models.Agent, required: true },
+      ],
+      transaction: t,
+    });
+
+    if (!booking) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    if (booking.Agent.agentId !== 'IRCTC') {
+      await t.rollback();
+      return res.status(400).json({ error: 'Booking is not associated with IRCTC agent' });
+    }
+
+    if (booking.bookingStatus === 'CANCELLED') {
+      await t.rollback();
+      return res.status(400).json({ error: 'Booking is already cancelled' });
+    }
+
+    const departureTime = dayjs(booking.FlightSchedule.departure_time);
+    const now = dayjs();
+    const hoursUntilDeparture = departureTime.diff(now, 'hour');
+    const totalFare = parseFloat(booking.totalFare);
+    const numSeats = booking.BookedSeats.length;
+
+    let refundAmount = 0;
+    let cancellationFee = 0;
+
+    if (hoursUntilDeparture > 96) {
+      cancellationFee = numSeats * 400; // INR 400 per seat
+      refundAmount = totalFare - cancellationFee;
+    } else if (hoursUntilDeparture >= 48) {
+      cancellationFee = totalFare * 0.25; // 25% of total fare
+      refundAmount = totalFare - cancellationFee;
+    } else if (hoursUntilDeparture >= 24) {
+      cancellationFee = totalFare * 0.50; // 50% of total fare
+      refundAmount = totalFare - cancellationFee;
+    } else {
+      cancellationFee = totalFare; // No refund
+      refundAmount = 0;
+    }
+
+    if (refundAmount < 0) refundAmount = 0;
+
+    const agent = await models.Agent.findByPk(booking.agentId, { transaction: t });
+    await agent.increment('wallet_amount', { by: refundAmount, transaction: t });
+
+    await models.BookedSeat.destroy({ where: { booking_id: booking.id }, transaction: t });
+    await models.Passenger.destroy({ where: { bookingId: booking.id }, transaction: t });
+    await models.Payment.destroy({ where: { booking_id: booking.id }, transaction: t });
+
+    await booking.update({ bookingStatus: 'CANCELLED' }, { transaction: t });
+    await booking.destroy({ transaction: t });
+
+    const updatedAvailableSeats = await getAvailableSeats({
+      models,
+      schedule_id: booking.schedule_id,
+      bookDate: booking.bookDate,
+      transaction: t,
+    });
+
+    await t.commit();
+
+    if (req.io) {
+      req.io.emit('seats-updated', {
+        schedule_id: booking.schedule_id,
+        bookDate: booking.bookDate,
+        availableSeats: updatedAvailableSeats,
+      });
+    }
+
+    res.json({
+      message: 'Booking cancelled successfully',
+      refundAmount,
+      cancellationFee,
+      wallet_amount: Number(agent.wallet_amount) + refundAmount,
+      note: 'Refund will be processed within 7–10 business days',
+    });
+  } catch (err) {
+    if (t) await t.rollback();
+    console.error('cancelIrctcBooking error:', err);
+    res.status(500).json({ error: 'Failed to cancel booking: ' + err.message });
+  }
+}
+
+async function rescheduleIrctcBooking(req, res) {
+  const { id } = req.params;
+  const { newScheduleId, newBookDate, newSeatLabels } = req.body;
+  let t;
+
+  try {
+    if (!newScheduleId || !newBookDate || !Array.isArray(newSeatLabels) || newSeatLabels.length === 0) {
+      return res.status(400).json({ error: 'newScheduleId, newBookDate, and newSeatLabels (array) are required' });
+    }
+    if (!dayjs(newBookDate, 'YYYY-MM-DD', true).isValid()) {
+      return res.status(400).json({ error: 'Invalid newBookDate format (YYYY-MM-DD)' });
+    }
+
+    t = await models.sequelize.transaction();
+    const booking = await models.Booking.findByPk(id, {
+      include: [
+        { model: models.FlightSchedule, required: true },
+        { model: models.BookedSeat, required: true },
+        { model: models.Agent, required: true },
+      ],
+      transaction: t,
+    });
+
+    if (!booking) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    if (booking.Agent.agentId !== 'IRCTC') {
+      await t.rollback();
+      return res.status(400).json({ error: 'Booking is not associated with IRCTC agent' });
+    }
+
+    if (booking.bookingStatus !== 'SUCCESS' && booking.bookingStatus !== 'CONFIRMED') {
+      await t.rollback();
+      return res.status(400).json({ error: 'Only confirmed or successful bookings can be rescheduled' });
+    }
+
+    const departureTime = dayjs(booking.FlightSchedule.departure_time);
+    const now = dayjs();
+    const hoursUntilDeparture = departureTime.diff(now, 'hour');
+
+    if (hoursUntilDeparture < 24) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Rescheduling not permitted less than 24 hours before departure' });
+    }
+
+    const newSchedule = await models.FlightSchedule.findByPk(newScheduleId, { transaction: t });
+    if (!newSchedule) {
+      await t.rollback();
+      return res.status(400).json({ error: 'New schedule not found' });
+    }
+
+    const availableSeats = await getAvailableSeats({
+      models,
+      schedule_id: newScheduleId,
+      bookDate: newBookDate,
+      transaction: t,
+    });
+    for (const seat of newSeatLabels) {
+      if (!availableSeats.includes(seat)) {
+        await t.rollback();
+        return res.status(400).json({ error: `Seat ${seat} is not available on new schedule` });
+      }
+    }
+
+    if (newSeatLabels.length !== booking.BookedSeats.length) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Number of new seats must match original booking' });
+    }
+
+    let reschedulingFee = 0;
+    if (hoursUntilDeparture > 48) {
+      reschedulingFee = booking.BookedSeats.length * 500; // INR 500 per seat
+    } else {
+      reschedulingFee = booking.BookedSeats.length * 1000; // INR 1000 per seat
+    }
+
+    const oldTotalFare = parseFloat(booking.totalFare);
+    const newTotalFare = parseFloat(newSchedule.price) * booking.BookedSeats.length;
+    const fareDifference = newTotalFare > oldTotalFare ? newTotalFare - oldTotalFare : 0;
+
+    const totalDeduction = reschedulingFee + fareDifference;
+    const agent = await models.Agent.findByPk(booking.agentId, { transaction: t });
+
+    if (Number(agent.wallet_amount) < totalDeduction) {
+      await t.rollback();
+      return res.status(400).json({ error: `Insufficient wallet balance: ${agent.wallet_amount} < ${totalDeduction}` });
+    }
+
+    await agent.decrement('wallet_amount', { by: totalDeduction, transaction: t });
+
+    await models.BookedSeat.destroy({ where: { booking_id: booking.id }, transaction: t });
+
+    for (const seat of newSeatLabels) {
+      await models.BookedSeat.create(
+        {
+          booking_id: booking.id,
+          schedule_id: newScheduleId,
+          bookDate: newBookDate,
+          seat_label: seat,
+          booked_seat: 1,
+        },
+        { transaction: t }
+      );
+    }
+
+    await booking.update(
+      {
+        schedule_id: newScheduleId,
+        bookDate: newBookDate,
+        totalFare: newTotalFare,
+        bookingStatus: 'CONFIRMED', // Rescheduled bookings are non-refundable
+      },
+      { transaction: t }
+    );
+
+    const oldAvailableSeats = await getAvailableSeats({
+      models,
+      schedule_id: booking.schedule_id,
+      bookDate: booking.bookDate,
+      transaction: t,
+    });
+
+    const newAvailableSeats = await getAvailableSeats({
+      models,
+      schedule_id: newScheduleId,
+      bookDate: newBookDate,
+      transaction: t,
+    });
+
+    await t.commit();
+
+    if (req.io) {
+      req.io.emit('seats-updated', [
+        {
+          schedule_id: booking.schedule_id,
+          bookDate: booking.bookDate,
+          availableSeats: oldAvailableSeats,
+        },
+        {
+          schedule_id: newScheduleId,
+          bookDate: newBookDate,
+          availableSeats: newAvailableSeats,
+        },
+      ]);
+    }
+
+    res.json({
+      message: 'Booking rescheduled successfully',
+      bookingId: booking.id,
+      newScheduleId,
+      newBookDate,
+      newSeatLabels,
+      reschedulingFee,
+      fareDifference,
+      totalDeduction,
+      wallet_amount: Number(agent.wallet_amount) - totalDeduction,
+      note: 'Rescheduled booking is non-refundable',
+    });
+  } catch (err) {
+    if (t) await t.rollback();
+    console.error('rescheduleIrctcBooking error:', err);
+    res.status(500).json({ error: 'Failed to reschedule booking: ' + err.message });
+  }
+}
+
 module.exports = {
   completeBooking,
   bookSeatsWithoutPayment,
-  generatePNR: generatePNRController,
+  generatePNR,
   getBookings,
   getBookingById,
   getIrctcBookings,
@@ -561,4 +930,7 @@ module.exports = {
   updateBooking,
   deleteBooking,
   getBookingSummary,
+  getBookingByPnr,
+  cancelIrctcBooking,
+  rescheduleIrctcBooking,
 };

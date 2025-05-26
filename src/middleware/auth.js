@@ -14,7 +14,7 @@ const authenticate = (roles = []) => {
       }
     }
 
-    // 3. Check custom token header
+
     if (!token && req.headers.token) {
       token = req.headers.token;
     }

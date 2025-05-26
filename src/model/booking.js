@@ -74,9 +74,9 @@ const Booking = sequelize.define(
       type: DataTypes.STRING,
       defaultValue: '0',
     },
-    agent_type: {
-      type: DataTypes.ENUM('flyola', 'IRCTC'),
-      defaultValue: 'flyola',
+    agentId: {
+      type: DataTypes.BIGINT.UNSIGNED, // Matches Agent.id
+      allowNull: true, // Allow null for bookings not tied to an agent
     },
     created_at: {
       type: DataTypes.DATE,
@@ -100,7 +100,8 @@ Booking.associate = (models) => {
   Booking.hasMany(models.Payment, { foreignKey: 'booking_id', sourceKey: 'id' });
   Booking.belongsTo(models.User, { foreignKey: 'bookedUserId', targetKey: 'id' });
   Booking.hasMany(models.Passenger, { foreignKey: 'bookingId', sourceKey: 'id' });
-  Booking.hasMany(models.BookedSeat, { foreignKey: 'booking_id', sourceKey: 'id' }); // Fixed relationship
+  Booking.hasMany(models.BookedSeat, { foreignKey: 'booking_id', sourceKey: 'id' });
+  Booking.belongsTo(models.Agent, { foreignKey: 'agentId', targetKey: 'id', onDelete: 'SET NULL' }); // New relationship
 };
 
 module.exports = Booking;

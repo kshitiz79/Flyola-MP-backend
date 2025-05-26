@@ -1,11 +1,15 @@
-
 const SEG_CACHE = new WeakMap();
 
 function getRoute(flight) {
   if (SEG_CACHE.has(flight)) return SEG_CACHE.get(flight);
-  const stops = Array.isArray(flight.airport_stop_ids)
-    ? flight.airport_stop_ids
-    : JSON.parse(flight.airport_stop_ids || '[]');
+  let stops = [];
+  try {
+    stops = Array.isArray(flight.airport_stop_ids)
+      ? flight.airport_stop_ids
+      : JSON.parse(flight.airport_stop_ids || '[]');
+  } catch (e) {
+    console.error(`Error parsing airport_stop_ids for flight ${flight.id}:`, e);
+  }
   const route = [flight.start_airport_id, ...stops, flight.end_airport_id];
   SEG_CACHE.set(flight, route);
   return route;
@@ -25,11 +29,21 @@ async function getAvailableSeats({ models, schedule_id, bookDate, transaction = 
     transaction,
   });
   if (!schedule || !schedule.Flight) {
-    throw new Error('Schedule or Flight not found');
+    console.warn(`Schedule ${schedule_id} or associated Flight not found`);
+    return [];
   }
   const flight = schedule.Flight;
 
   const allSeats = generateSeatLabels(flight.seat_limit);
+
+  // Get flight route for segment validation
+  const route = getRoute(flight);
+  const depIdx = route.indexOf(schedule.departure_airport_id);
+  const arrIdx = route.indexOf(schedule.arrival_airport_id);
+  if (depIdx < 0 || arrIdx < 0 || depIdx >= arrIdx) {
+    console.warn(`Invalid departure/arrival for schedule ${schedule_id}: departure_airport_id=${schedule.departure_airport_id}, arrival_airport_id=${schedule.arrival_airport_id}, route=${JSON.stringify(route)}`);
+    return []; // Return empty array instead of throwing
+  }
 
   // Get all schedules for this flight
   const allSchedules = await models.FlightSchedule.findAll({
@@ -37,14 +51,6 @@ async function getAvailableSeats({ models, schedule_id, bookDate, transaction = 
     attributes: ['id', 'departure_airport_id', 'arrival_airport_id'],
     transaction,
   });
-
-  // Get flight route for segment validation
-  const route = getRoute(flight);
-  const depIdx = route.indexOf(schedule.departure_airport_id);
-  const arrIdx = route.indexOf(schedule.arrival_airport_id);
-  if (depIdx < 0 || arrIdx < 0 || depIdx >= arrIdx) {
-    throw new Error(`Invalid departure/arrival for schedule ${schedule_id}`);
-  }
 
   // Filter schedules that overlap with the requested segment
   const relevantScheduleIds = allSchedules

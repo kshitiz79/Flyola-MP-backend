@@ -39,7 +39,10 @@ app.use('/billings', require('./src/routes/billings'));
 
 app.use('/payments', require('./src/routes/payments'));
 
+const agentRoutes = require('./src/routes/agent'); 
 
+
+app.use('/agents', agentRoutes);
 
 
 
@@ -47,9 +50,9 @@ app.use('/payments', require('./src/routes/payments'));
 // No changes needed, but ensure this line exists:
 app.use('/bookings', require('./src/routes/bookings'));
 
-app.use('/booked-seat', require('./src/routes/seatRoutes'));
 
-// app.use('/booked-seat', require('./src/routes/bookedSeates'));
+
+
 
 
 app.use('/passenger', require('./src/routes/passengerRoutes'));

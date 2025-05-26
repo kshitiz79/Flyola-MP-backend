@@ -1,6 +1,3 @@
-// src/models/index.js
-
-
 const sequelize = require('../../db2');
 const { Sequelize } = require('sequelize');
 
@@ -14,6 +11,7 @@ const models = {
   Airport: require('./airport'),
   User: require('./user'),
   Passenger: require('./passanger'),
+  Agent: require('./Agent'),
   sequelize,
   Sequelize,
 };
@@ -22,12 +20,8 @@ Object.keys(models).forEach(name => {
   if (typeof models[name].associate === 'function') models[name].associate(models);
 });
 
-models.FlightSchedule.belongsTo(models.Airport, {
-  as: 'DepartureAirport', foreignKey: 'departure_airport_id',
-});
-models.FlightSchedule.belongsTo(models.Airport, {
-  as: 'ArrivalAirport', foreignKey: 'arrival_airport_id',
-});
+models.FlightSchedule.belongsTo(models.Airport, { as: 'DepartureAirport', foreignKey: 'departure_airport_id' });
+models.FlightSchedule.belongsTo(models.Airport, { as: 'ArrivalAirport', foreignKey: 'arrival_airport_id' });
 models.FlightSchedule.belongsTo(models.Flight, { foreignKey: 'flight_id' });
 models.BookedSeat.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id' });
 models.Booking.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id' });
@@ -39,5 +33,6 @@ models.Payment.belongsTo(models.User, { foreignKey: 'user_id' });
 models.Billing.belongsTo(models.User, { foreignKey: 'user_id' });
 models.Flight.hasMany(models.FlightSchedule, { foreignKey: 'flight_id' });
 models.Passenger.belongsTo(models.Booking, { foreignKey: 'bookingId' });
+models.Booking.belongsTo(models.Agent, { foreignKey: 'agentId', onDelete: 'SET NULL' }); // New relationship
 
 module.exports = models;
