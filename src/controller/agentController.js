@@ -4,9 +4,9 @@ const models = require('../model');
 async function addWalletAmount(req, res) {
   const { agentId, amount } = req.body;
 
-  if (!req.user || req.user.role !== 1) {
-    return res.status(403).json({ error: 'Forbidden: Only admins can add wallet amount' });
-  }
+  // if (!req.user || req.user.role !== 1) {
+  //   return res.status(403).json({ error: 'Forbidden: Only admins can add wallet amount' });
+  // }
 
   if (!agentId || !Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ error: 'Invalid agentId or amount (must be positive number)' });
@@ -59,9 +59,7 @@ async function getAgentWallet(req, res) {
 }
 
 async function getAllAgents(req, res) {
-  if (!req.user || req.user.role !== 1) {
-    return res.status(403).json({ error: 'Forbidden: Only admins can view agents' });
-  }
+  
 
   try {
     const agents = await models.Agent.findAll({
@@ -82,11 +80,13 @@ async function getAllAgents(req, res) {
     return res.status(500).json({ error: 'Failed to fetch agents' });
   }
 }
+
+
+
+
 async function getAgentById(req, res) {
   const { id } = req.params;
-  if (!req.user || req.user.role !== 1) {
-    return res.status(403).json({ error: 'Forbidden: Only admins can view agent' });
-  }
+  
   try {
     const agent = await models.Agent.findByPk(id, {
       attributes: ['id', 'agentId', 'username', 'wallet_amount', 'no_of_ticket_booked'],

@@ -1,11 +1,21 @@
 const models = require('../model');
-const { sumSeats, getAvailableSeats } = require('../utils/seatUtils');
+const {  getAvailableSeats } = require('../utils/seatUtils');
 const { verifyPayment } = require('../utils/razorpay');
 const { createPaymentUtil } = require('./paymentController');
 const { v4: uuidv4 } = require('uuid');
 const dayjs = require('dayjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+
+
+const utc = require('dayjs/plugin/utc');
+const timezone = require('dayjs/plugin/timezone');
+
+
+dayjs.extend(utc);
+dayjs.extend(timezone)
+
+
 
 function generatePNR() {
   const maxAttempts = 10;
@@ -82,6 +92,7 @@ async function completeBooking(req, res) {
   }
 
   try {
+    // Validate agentId if provided
     let agent = null;
     if (booking.agentId) {
       agent = await models.Agent.findByPk(booking.agentId);
@@ -171,6 +182,7 @@ async function completeBooking(req, res) {
         { transaction: t }
       );
 
+      // Increment agent's no_of_ticket_booked if agentId is provided
       if (agent) {
         await agent.increment('no_of_ticket_booked', { by: booking.noOfPassengers, transaction: t });
       }
@@ -203,7 +215,6 @@ async function completeBooking(req, res) {
     return res.status(400).json({ error: err.message });
   }
 }
-
 async function bookSeatsWithoutPayment(req, res) {
   const { bookedSeat, booking, passengers } = req.body;
 
@@ -233,10 +244,11 @@ async function bookSeatsWithoutPayment(req, res) {
 
   const totalFare = parseFloat(booking.totalFare);
   if (!Number.isFinite(totalFare) || totalFare <= 0) {
-    return res.status(400).json({ success: false, error: 'Total fare must be a positive number' });
+    return res.status(400).json({ success: false, error: 'Total fare must be a positive ' });
   }
 
   try {
+    // Validate agentId and wallet balance
     const agent = await models.Agent.findByPk(booking.agentId);
     if (!agent) {
       return res.status(400).json({ success: false, error: `Invalid agentId: ${booking.agentId}` });
@@ -300,6 +312,7 @@ async function bookSeatsWithoutPayment(req, res) {
         { transaction: t }
       );
 
+      // Deduct totalFare from wallet_amount and increment no_of_ticket_booked
       await agent.decrement('wallet_amount', { by: totalFare, transaction: t });
       await agent.increment('no_of_ticket_booked', { by: booking.noOfPassengers, transaction: t });
 
@@ -348,10 +361,12 @@ async function bookSeatsWithoutPayment(req, res) {
   }
 }
 
+
 async function getIrctcBookings(req, res) {
   console.log('Reached getIrctcBookings endpoint');
   try {
-    const irctcAgent = await models.Agent.findOne({ where: { agentId: 'IRCTC' } });
+    // Find IRCTC agent (assuming agentId or agentId is unique for IRCTC)
+    const irctcAgent = await models.Agent.findOne({ where: { agentId: 'IRCTC' } }); // Adjust based on your Agent data
     if (!irctcAgent) {
       return res.status(404).json({ error: 'IRCTC agent not found' });
     }
@@ -363,7 +378,7 @@ async function getIrctcBookings(req, res) {
         models.FlightSchedule,
         models.BookedSeat,
         models.Payment,
-        models.Agent,
+        models.Agent, // Include Agent details
       ],
     });
 
@@ -404,7 +419,7 @@ async function getUserBookings(req, res) {
         { model: models.Passenger, required: false },
         { model: models.BookedSeat, attributes: ['seat_label'], required: false },
         { model: models.Payment, as: 'Payments', required: false },
-        { model: models.Agent, required: false },
+        { model: models.Agent, required: false }, // Include Agent details
       ],
       order: [['bookDate', 'DESC']],
     });
@@ -655,12 +670,17 @@ async function getBookingByPnr(req, res) {
   }
 }
 
+
+
+
 async function cancelIrctcBooking(req, res) {
   const { id } = req.params;
   let t;
 
   try {
     t = await models.sequelize.transaction();
+
+    // Fetch the booking with associated models
     const booking = await models.Booking.findByPk(id, {
       include: [
         { model: models.FlightSchedule, required: true },
@@ -685,15 +705,43 @@ async function cancelIrctcBooking(req, res) {
       return res.status(400).json({ error: 'Booking is already cancelled' });
     }
 
-    const departureTime = dayjs(booking.FlightSchedule.departure_time);
-    const now = dayjs();
+    // Ensure times are in IST (Asia/Kolkata)
+    const now = dayjs().tz('Asia/Kolkata'); // Current time in IST
+
+    // Combine bookDate with departure_time
+    const bookDate = dayjs(booking.bookDate, 'YYYY-MM-DD').tz('Asia/Kolkata');
+    const departureTimeRaw = booking.FlightSchedule.departure_time;
+
+    // Validate departure_time format (expecting HH:mm:ss)
+    if (!departureTimeRaw || !/^\d{2}:\d{2}:\d{2}$/.test(departureTimeRaw)) {
+      await t.rollback();
+      console.error(`Invalid departure_time format for schedule ${booking.schedule_id}: ${departureTimeRaw}. Expected HH:mm:ss.`);
+      return res.status(400).json({ error: 'Invalid departure time format in flight schedule. Expected HH:mm:ss.' });
+    }
+
+    // Combine bookDate and departure_time to form a full datetime
+    const departureDateTimeString = `${booking.bookDate}T${departureTimeRaw}+05:30`; // e.g., "2025-06-05T12:00:00+05:30"
+    let departureTime = dayjs(departureDateTimeString).tz('Asia/Kolkata');
+
+    // Validate the combined datetime
+    if (!departureTime.isValid()) {
+      await t.rollback();
+      console.error(`Failed to parse combined departure datetime for schedule ${booking.schedule_id}: ${departureDateTimeString}`);
+      return res.status(400).json({ error: 'Failed to parse departure time in flight schedule' });
+    }
+
     const hoursUntilDeparture = departureTime.diff(now, 'hour');
+    console.log(
+      `Cancellation time: ${now.format()}, Departure time: ${departureTime.format()}, Hours until departure: ${hoursUntilDeparture}`
+    );
+
     const totalFare = parseFloat(booking.totalFare);
     const numSeats = booking.BookedSeats.length;
 
     let refundAmount = 0;
     let cancellationFee = 0;
 
+    // Calculate cancellation fee and refund based on time until departure
     if (hoursUntilDeparture > 96) {
       cancellationFee = numSeats * 400; // INR 400 per seat
       refundAmount = totalFare - cancellationFee;
@@ -709,17 +757,26 @@ async function cancelIrctcBooking(req, res) {
     }
 
     if (refundAmount < 0) refundAmount = 0;
+    console.log(`Total Fare: ${totalFare}, Num Seats: ${numSeats}, Cancellation Fee: ${cancellationFee}, Refund Amount: ${refundAmount}`);
 
+    // Update agent's wallet
     const agent = await models.Agent.findByPk(booking.agentId, { transaction: t });
+    const initialWalletAmount = Number(agent.wallet_amount);
     await agent.increment('wallet_amount', { by: refundAmount, transaction: t });
+    await agent.reload({ transaction: t }); // Refresh agent instance to get updated wallet_amount
+    const updatedWalletAmount = Number(agent.wallet_amount);
+    console.log(`Agent ${agent.id} Wallet: ${initialWalletAmount} -> ${updatedWalletAmount} (Refund: ${refundAmount})`);
 
+    // Clean up associated records
     await models.BookedSeat.destroy({ where: { booking_id: booking.id }, transaction: t });
     await models.Passenger.destroy({ where: { bookingId: booking.id }, transaction: t });
     await models.Payment.destroy({ where: { booking_id: booking.id }, transaction: t });
 
+    // Update and delete the booking
     await booking.update({ bookingStatus: 'CANCELLED' }, { transaction: t });
     await booking.destroy({ transaction: t });
 
+    // Update available seats
     const updatedAvailableSeats = await getAvailableSeats({
       models,
       schedule_id: booking.schedule_id,
@@ -729,6 +786,7 @@ async function cancelIrctcBooking(req, res) {
 
     await t.commit();
 
+    // Emit seats-updated event if socket.io is available
     if (req.io) {
       req.io.emit('seats-updated', {
         schedule_id: booking.schedule_id,
@@ -737,12 +795,13 @@ async function cancelIrctcBooking(req, res) {
       });
     }
 
+    // Respond with updated wallet amount
     res.json({
       message: 'Booking cancelled successfully',
       refundAmount,
       cancellationFee,
-      wallet_amount: Number(agent.wallet_amount) + refundAmount,
-      note: 'Refund will be processed within 7–10 business days',
+      wallet_amount: updatedWalletAmount,
+      note: 'Wallet updated instantly; refund processing for external accounts (if applicable) takes 7–10 business days',
     });
   } catch (err) {
     if (t) await t.rollback();
@@ -751,12 +810,16 @@ async function cancelIrctcBooking(req, res) {
   }
 }
 
+
+
+
 async function rescheduleIrctcBooking(req, res) {
   const { id } = req.params;
   const { newScheduleId, newBookDate, newSeatLabels } = req.body;
   let t;
 
   try {
+    // Validate input
     if (!newScheduleId || !newBookDate || !Array.isArray(newSeatLabels) || newSeatLabels.length === 0) {
       return res.status(400).json({ error: 'newScheduleId, newBookDate, and newSeatLabels (array) are required' });
     }
@@ -789,9 +852,33 @@ async function rescheduleIrctcBooking(req, res) {
       return res.status(400).json({ error: 'Only confirmed or successful bookings can be rescheduled' });
     }
 
-    const departureTime = dayjs(booking.FlightSchedule.departure_time);
-    const now = dayjs();
+    // Combine bookDate with departure_time
+    const bookDate = dayjs(booking.bookDate, 'YYYY-MM-DD').tz('Asia/Kolkata');
+    const departureTimeRaw = booking.FlightSchedule.departure_time;
+
+    // Validate departure_time format (expecting HH:mm:ss)
+    if (!departureTimeRaw || !/^\d{2}:\d{2}:\d{2}$/.test(departureTimeRaw)) {
+      await t.rollback();
+      console.error(`Invalid departure_time format for schedule ${booking.schedule_id}: ${departureTimeRaw}. Expected HH:mm:ss.`);
+      return res.status(400).json({ error: 'Invalid departure time format in flight schedule. Expected HH:mm:ss.' });
+    }
+
+    // Combine bookDate and departure_time to form a full datetime
+    const departureDateTimeString = `${booking.bookDate}T${departureTimeRaw}+05:30`; // e.g., "2025-06-05T12:00:00+05:30"
+    const departureTime = dayjs(departureDateTimeString).tz('Asia/Kolkata');
+
+    // Validate the combined datetime
+    if (!departureTime.isValid()) {
+      await t.rollback();
+      console.error(`Failed to parse combined departure datetime for schedule ${booking.schedule_id}: ${departureDateTimeString}`);
+      return res.status(400).json({ error: 'Failed to parse departure time in flight schedule' });
+    }
+
+    const now = dayjs().tz('Asia/Kolkata'); // Current time in IST
     const hoursUntilDeparture = departureTime.diff(now, 'hour');
+    console.log(
+      `Reschedule check - Current time: ${now.format()}, Departure time: ${departureTime.format()}, Hours until departure: ${hoursUntilDeparture}`
+    );
 
     if (hoursUntilDeparture < 24) {
       await t.rollback();
@@ -842,6 +929,7 @@ async function rescheduleIrctcBooking(req, res) {
     }
 
     await agent.decrement('wallet_amount', { by: totalDeduction, transaction: t });
+    await agent.reload({ transaction: t }); // Refresh agent instance
 
     await models.BookedSeat.destroy({ where: { booking_id: booking.id }, transaction: t });
 
@@ -884,19 +972,18 @@ async function rescheduleIrctcBooking(req, res) {
 
     await t.commit();
 
+    // Emit separate seats-updated events for old and new schedules
     if (req.io) {
-      req.io.emit('seats-updated', [
-        {
-          schedule_id: booking.schedule_id,
-          bookDate: booking.bookDate,
-          availableSeats: oldAvailableSeats,
-        },
-        {
-          schedule_id: newScheduleId,
-          bookDate: newBookDate,
-          availableSeats: newAvailableSeats,
-        },
-      ]);
+      req.io.emit('seats-updated', {
+        schedule_id: booking.schedule_id,
+        bookDate: booking.bookDate,
+        availableSeats: oldAvailableSeats,
+      });
+      req.io.emit('seats-updated', {
+        schedule_id: newScheduleId,
+        bookDate: newBookDate,
+        availableSeats: newAvailableSeats,
+      });
     }
 
     res.json({
@@ -908,7 +995,7 @@ async function rescheduleIrctcBooking(req, res) {
       reschedulingFee,
       fareDifference,
       totalDeduction,
-      wallet_amount: Number(agent.wallet_amount) - totalDeduction,
+      wallet_amount: Number(agent.wallet_amount),
       note: 'Rescheduled booking is non-refundable',
     });
   } catch (err) {
@@ -918,10 +1005,13 @@ async function rescheduleIrctcBooking(req, res) {
   }
 }
 
+
+
+
 module.exports = {
   completeBooking,
   bookSeatsWithoutPayment,
-  generatePNR,
+  generatePNR: generatePNRController,
   getBookings,
   getBookingById,
   getIrctcBookings,
@@ -933,4 +1023,4 @@ module.exports = {
   getBookingByPnr,
   cancelIrctcBooking,
   rescheduleIrctcBooking,
-};
+}

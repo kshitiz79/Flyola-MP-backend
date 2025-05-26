@@ -10,10 +10,14 @@ router.get('/pnr', bookingController.getBookingByPnr);
 router.get('/irctc-bookings', bookingController.getIrctcBookings);
 router.get('/generate-pnr', bookingController.generatePNR);
 router.post('/complete-booking', bookingController.completeBooking);
-router.post('/book-seats', bookingController.bookSeatsWithoutPayment); // Renamed from /book-seats-irctc
+router.post('/book-seats', bookingController.bookSeatsWithoutPayment); 
+router.post('/irctc/cancel/:id(\\d+)', bookingController.cancelIrctcBooking); 
+router.post('/irctc/reschedule/:id(\\d+)', bookingController.rescheduleIrctcBooking);
+
+
 
 router.get('/', bookingController.getBookings);
-// All others require a valid JWT
+
 router.use(authenticate());
 
 router.get('/summary', bookingController.getBookingSummary);
@@ -23,11 +27,10 @@ router.post('/', bookingController.createBooking);
 router.put('/:id(\\d+)', bookingController.updateBooking);
 router.delete('/:id(\\d+)', bookingController.deleteBooking);
 
-router.post('/irctc/cancel/:id(\\d+)', bookingController.cancelIrctcBooking); // New endpoint
-router.post('/irctc/reschedule/:id(\\d+)', bookingController.rescheduleIrctcBooking);
+
 
 module.exports = router;
-// ✔️ now protected
+
 
 
 
