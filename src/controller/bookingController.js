@@ -361,30 +361,44 @@ async function bookSeatsWithoutPayment(req, res) {
   }
 }
 
-
 async function getIrctcBookings(req, res) {
   console.log('Reached getIrctcBookings endpoint');
   try {
-    // Find IRCTC agent (assuming agentId or agentId is unique for IRCTC)
-    const irctcAgent = await models.Agent.findOne({ where: { agentId: 'IRCTC' } }); // Adjust based on your Agent data
+    // Check authorization
+
+
+    // Find IRCTC agent
+    const irctcAgent = await models.Agent.findOne({ where: { agentId: 'IRCTC' } });
     if (!irctcAgent) {
       return res.status(404).json({ error: 'IRCTC agent not found' });
     }
 
+    // Pagination and filtering
+    const { page = 1, limit = 10, status, startDate, endDate } = req.query;
+    const offset = (page - 1) * limit;
+    const where = { agentId: irctcAgent.id };
+    if (status) where.bookingStatus = status.toUpperCase();
+    if (startDate && endDate) {
+      where.bookDate = { [models.Sequelize.Op.between]: [startDate, endDate] };
+    }
+
     const bookings = await models.Booking.findAll({
-      where: { agentId: irctcAgent.id },
+      where,
       include: [
-        models.Passenger,
-        models.FlightSchedule,
-        models.BookedSeat,
-        models.Payment,
-        models.Agent, // Include Agent details
+        { model: models.Passenger, required: false },
+        { model: models.FlightSchedule, required: false },
+        { model: models.BookedSeat, attributes: ['seat_label'], required: false },
+        { model: models.Payment, as: 'Payments', required: false },
+        { model: models.Agent, required: false },
       ],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['created_at', 'DESC']],
     });
 
-    console.log('IRCTC Bookings found:', bookings.length, bookings.map(b => b.toJSON()));
+    console.log('IRCTC Bookings found:', bookings.length);
     if (!bookings || bookings.length === 0) {
-      return res.status(200).json([]);
+      return res.status(200).json({ success: true, data: [] });
     }
 
     const bookingsWithBilling = await Promise.all(
@@ -398,13 +412,12 @@ async function getIrctcBookings(req, res) {
       })
     );
 
-    res.json(bookingsWithBilling);
+    return res.status(200).json({ success: true, data: bookingsWithBilling });
   } catch (err) {
-    console.error('getIrctcBookings error:', err);
-    res.status(500).json({ error: 'Failed to fetch IRCTC bookings' });
+    console.error('getIrctcBookings error:', err.message, err.stack);
+    return res.status(500).json({ success: false, error: `Failed to fetch IRCTC bookings: ${err.message}` });
   }
 }
-
 async function getUserBookings(req, res) {
   if (!req.user || !req.user.id) {
     return res.status(401).json({ error: 'Unauthorized: No valid user token provided' });

@@ -254,13 +254,88 @@ async function updateFlightStops(req, res) {
   }
 }
 
+
+
+
+
+
+async function getSchedulePriceByDay(req, res) {
+  const models = getModels();
+  const scheduleId = req.query.schedule_id || req.params.id;
+  const monthQuery = req.query.month; // e.g. "2025-05"
+
+  if (!scheduleId) {
+    return res.status(400).json({ error: 'schedule_id is required' });
+  }
+
+  try {
+    const schedule = await models.FlightSchedule.findByPk(scheduleId, {
+      include: [{ model: models.Flight }],
+    });
+
+    if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+    if (!schedule.Flight) return res.status(404).json({ error: 'Associated Flight not found' });
+
+    const price = parseFloat(schedule.price);
+    const departureDay = schedule.Flight.departure_day; // e.g. "Wednesday"
+    if (!departureDay) {
+      return res.status(400).json({ error: 'Flight departure day not defined' });
+    }
+
+    // Determine year and month
+    let year, month;
+    if (monthQuery) {
+      [year, month] = monthQuery.split('-').map(Number);
+    } else {
+      const now = toZonedTime(new Date(), 'Asia/Kolkata');
+      year = now.getFullYear();
+      month = now.getMonth() + 1;
+    }
+
+    const startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
+    const endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
+
+    // Map weekday string to number (0 = Sunday ... 6 = Saturday)
+    const weekdayMap = {
+      Sunday: 0,
+      Monday: 1,
+      Tuesday: 2,
+      Wednesday: 3,
+      Thursday: 4,
+      Friday: 5,
+      Saturday: 6,
+    };
+
+    const targetWeekday = weekdayMap[departureDay];
+    if (targetWeekday === undefined) {
+      return res.status(400).json({ error: 'Invalid flight departure day' });
+    }
+
+    const output = [];
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === targetWeekday) {
+        const dateStr = format(d, 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
+        output.push({ date: dateStr, price });
+      }
+    }
+
+    res.json(output);
+  } catch (err) {
+    console.error('getSchedulePriceByDay error:', err);
+    res.status(500).json({ error: 'Failed to get prices by day' });
+  }
+}
+
+
+
 module.exports = {
   getFlightSchedules,
   addFlightSchedule,
   updateFlightSchedule,
   deleteFlightSchedule,
-  activateAllFlightSchedules,
+  activateAllFlightSchedules,     
   editAllFlightSchedules,
   deleteAllFlightSchedules,
   updateFlightStops,
+   getSchedulePriceByDay,
 };
