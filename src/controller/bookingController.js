@@ -56,6 +56,7 @@ function generatePNR() {
 async function completeBooking(req, res) {
   const { bookedSeat, booking, billing, payment, passengers } = req.body;
 
+  // Input validation
   if (!bookedSeat || !booking || !billing || !payment || !Array.isArray(passengers) || !passengers.length) {
     return res.status(400).json({ error: 'Missing required booking sections' });
   }
@@ -65,7 +66,6 @@ async function completeBooking(req, res) {
   if (!bookedSeat.seat_labels || !Array.isArray(bookedSeat.seat_labels) || bookedSeat.seat_labels.length !== passengers.length) {
     return res.status(400).json({ error: 'seat_labels must be an array matching the number of passengers' });
   }
-
   for (const f of ['pnr', 'bookingNo', 'contact_no', 'email_id', 'noOfPassengers', 'totalFare', 'bookedUserId', 'schedule_id']) {
     if (!booking[f]) return res.status(400).json({ error: `Missing booking field: ${f}` });
   }
@@ -78,8 +78,8 @@ async function completeBooking(req, res) {
       return res.status(400).json({ error: 'Missing passenger fields: name, title, type, age' });
     }
   }
-  if (!['RAZORPAY', 'ADMIN', 'DUMMY'].includes(payment.payment_mode)) {
-    return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY, ADMIN, or DUMMY' });
+  if (!['RAZORPAY', 'ADMIN'].includes(payment.payment_mode)) {
+    return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY or ADMIN' });
   }
 
   const totalFare = parseFloat(booking.totalFare);
@@ -113,9 +113,12 @@ async function completeBooking(req, res) {
         if (booking.bookedUserId !== decoded.id || billing.user_id !== decoded.id || payment.user_id !== decoded.id) {
           throw new Error('Forbidden: User ID mismatch');
         }
-      }
-
-      if (payment.payment_mode === 'RAZORPAY') {
+        // Admin bookings bypass payment verification
+        payment.payment_status = 'SUCCESS';
+        payment.payment_id = `ADMIN_${Date.now()}`;
+        payment.order_id = `ADMIN_${Date.now()}`;
+        payment.razorpay_signature = null;
+      } else if (payment.payment_mode === 'RAZORPAY') {
         if (!payment.payment_id || !payment.order_id || !payment.razorpay_signature) {
           throw new Error('Missing Razorpay payment fields');
         }
@@ -125,13 +128,6 @@ async function completeBooking(req, res) {
           signature: payment.razorpay_signature,
         });
         if (!ok) throw new Error('Invalid Razorpay signature');
-      }
-
-      if (payment.payment_mode === 'DUMMY') {
-        const isLocalhost = req.hostname === 'localhost' || req.hostname === '127.0.0.1';
-        if (!isLocalhost && process.env.NODE_ENV === 'production') {
-          throw new Error('Dummy payments are not allowed in production');
-        }
       }
 
       const availableSeats = await getAvailableSeats({
@@ -182,7 +178,6 @@ async function completeBooking(req, res) {
         { transaction: t }
       );
 
-      // Increment agent's no_of_ticket_booked if agentId is provided
       if (agent) {
         await agent.increment('no_of_ticket_booked', { by: booking.noOfPassengers, transaction: t });
       }
@@ -215,6 +210,9 @@ async function completeBooking(req, res) {
     return res.status(400).json({ error: err.message });
   }
 }
+
+
+
 async function bookSeatsWithoutPayment(req, res) {
   const { bookedSeat, booking, passengers } = req.body;
 

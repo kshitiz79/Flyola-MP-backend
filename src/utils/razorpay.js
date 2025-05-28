@@ -1,8 +1,8 @@
 const Razorpay = require("razorpay");
-const crypto   = require("crypto");
+const crypto = require("crypto");
 
 const razorpay = new Razorpay({
-  key_id:     process.env.RAZORPAY_KEY_ID,
+  key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
@@ -11,7 +11,7 @@ const razorpay = new Razorpay({
  * the HMAC of order_id|payment_id using your key secret.
  */
 function verifyPayment({ order_id, payment_id, signature }) {
-  const payload  = `${order_id}|${payment_id}`;
+  const payload = `${order_id}|${payment_id}`;
   const expected = crypto
     .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
     .update(payload)

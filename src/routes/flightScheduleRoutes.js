@@ -11,8 +11,4 @@ router.post('/', ctrl.addFlightSchedule);
 router.put('/:id', ctrl.updateFlightSchedule);
 router.delete('/:id', ctrl.deleteFlightSchedule);
 
-router.get('/price-by-day/:id', ctrl.getSchedulePriceByDay);
-
-
-
 module.exports = router;

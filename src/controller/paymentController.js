@@ -14,7 +14,7 @@ const createPaymentUtil = async (paymentData, transaction) => {
 
 
 const createOrder = async (req, res) => {
-  const { amount } = req.body;
+  const { amount, payment_mode = 'RAZORPAY' } = req.body;
   if (amount == null) {
     return res.status(400).json({ error: "Missing required field: amount" });
   }
@@ -26,21 +26,36 @@ const createOrder = async (req, res) => {
   try {
     let order;
     try {
-      order = await razorpay.orders.create({
-        amount: numericAmount * 100, 
-        currency: 'INR',
-        receipt: `receipt_${Date.now()}`,
-      });
+      if (payment_mode === 'RAZORPAY_QR') {
+        order = await razorpay.qr_codes.create({
+          type: 'upi_qr',
+          name: 'Flyola Aviation QR Payment',
+          usage: 'single_use',
+          fixed_amount: true,
+          amount: numericAmount * 100, // Convert to paise
+          currency: 'INR',
+          description: 'Flight booking payment via QR code',
+        });
+      } else {
+        order = await razorpay.orders.create({
+          amount: numericAmount * 100,
+          currency: 'INR',
+          receipt: `receipt_${Date.now()}`,
+        });
+      }
     } catch (sdkErr) {
       return res.status(502).json({ error: sdkErr.message || "Razorpay order creation failed" });
     }
 
-    return res.json({ order_id: order.id });
+    return res.json({
+      order_id: order.id,
+      payment_mode,
+      ...(payment_mode === 'RAZORPAY_QR' && { qr_code: order.qr_code }),
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message || "Internal server error" });
   }
 };
-
 
 const getPayments = async (req, res) => {
   try {

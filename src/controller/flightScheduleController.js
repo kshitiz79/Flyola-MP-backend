@@ -163,17 +163,37 @@ async function updateFlightSchedule(req, res) {
       const route = getRoute(flight);
       const depId = departure_airport_id || schedule.departure_airport_id;
       const arrId = arrival_airport_id || schedule.arrival_airport_id;
-      if (!route.includes(depId) || !route.includes(arrId)) {
-        return res.status(400).json({ error: 'Invalid departure or arrival airport' });
-      }
-      if (route.indexOf(depId) >= route.indexOf(arrId)) {
-        return res.status(400).json({ error: 'Departure must precede arrival in flight route' });
+      if (route.length > 0) { // Only validate if route exists
+        if (!route.includes(depId) || !route.includes(arrId)) {
+          return res.status(400).json({ error: 'Invalid departure or arrival airport' });
+        }
+        if (route.indexOf(depId) >= route.indexOf(arrId)) {
+          return res.status(400).json({ error: 'Departure must precede arrival in flight route' });
+        }
       }
     }
 
-    const validViaStopIds = via_stop_id
-      ? JSON.parse(via_stop_id).filter((id) => id && Number.isInteger(id) && id !== 0)
-      : schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
+    // Validate via_stop_id
+    let validViaStopIds = [];
+    if (via_stop_id) {
+      try {
+        validViaStopIds = JSON.parse(via_stop_id).filter(
+          (id) => id && Number.isInteger(id) && id !== 0
+        );
+        // Optionally validate via_stop_ids against airports table
+        const airports = await models.Airport.findAll({
+          where: { id: validViaStopIds },
+          attributes: ['id'],
+        });
+        const validAirportIds = airports.map((a) => a.id);
+        validViaStopIds = validViaStopIds.filter((id) => validAirportIds.includes(id));
+      } catch (e) {
+        console.error(`Error parsing via_stop_id for schedule ${req.params.id}:`, e);
+        return res.status(400).json({ error: 'Invalid via_stop_id format' });
+      }
+    } else {
+      validViaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
+    }
 
     await schedule.update({
       ...body,
@@ -185,10 +205,9 @@ async function updateFlightSchedule(req, res) {
     res.json({ message: 'Updated' });
   } catch (err) {
     console.error('updateFlightSchedule error:', err);
-    res.status(500).json({ error: 'Failed to update' });
+    res.status(500).json({ error: 'Failed to update', details: err.message });
   }
 }
-
 async function deleteFlightSchedule(req, res) {
   const models = getModels();
   try {
@@ -277,7 +296,7 @@ async function getSchedulePriceByDay(req, res) {
     if (!schedule.Flight) return res.status(404).json({ error: 'Associated Flight not found' });
 
     const price = parseFloat(schedule.price);
-    const departureDay = schedule.Flight.departure_day; // e.g. "Wednesday"
+    const departureDay = schedule.Flight.departure_day; 
     if (!departureDay) {
       return res.status(400).json({ error: 'Flight departure day not defined' });
     }
