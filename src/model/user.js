@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const sequelize = require('../../db2'); // Updated from ../../db2
+const sequelize = require('../../db2');
 
 const User = sequelize.define(
   'User',
@@ -15,20 +15,21 @@ const User = sequelize.define(
     },
     email: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true, // Already correct for email signups
       unique: true,
     },
     password: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true,
     },
     number: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true, // Changed to allow null for email signups
+      unique: true,
     },
     role: {
       type: DataTypes.INTEGER,
-      defaultValue: 3, // 1 for admin, 3 for user
+      defaultValue: 3,
     },
     remember_token: {
       type: DataTypes.STRING,
@@ -49,7 +50,6 @@ const User = sequelize.define(
   }
 );
 
-// Associations (called by index.js)
 User.associate = (models) => {
   User.hasMany(models.Booking, { foreignKey: 'bookedUserId' });
   User.hasMany(models.Payment, { foreignKey: 'user_id' });

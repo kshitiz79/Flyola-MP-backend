@@ -6,6 +6,10 @@ const getModels = () => require('../model');
 require('dotenv').config();
 const { authenticate } = require('../middleware/auth');
 
+const { body, validationResult } = require('express-validator'); 
+
+
+
 const router = express.Router();
 
 
@@ -238,46 +242,78 @@ module.exports = router;
 
 
 
-
-// Login with email or number (no password)
-router.post('/auth', async (req, res) => {
-  const models = getModels();
-  const { identifier } = req.body; // email or number
-
-  if (!identifier) {
-    return res.status(400).json({ error: 'Email or number is required.' });
-  }
-
-  try {
-    const user = await models.User.findOne({
-      where: {
-        [models.Sequelize.Op.or]: [
-          { email: identifier },
-          { number: identifier }
-        ]
-      }
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+router.post(
+  '/auth',
+  [
+    body('identifier')
+      .notEmpty()
+      .withMessage('Email or number is required')
+      .custom((value) => {
+        const isEmail = /\S+@\S+\.\S+/.test(value);
+        const isPhone = /^\d{10}$/.test(value);
+        if (!isEmail && !isPhone) {
+          throw new Error('Invalid email or phone number format');
+        }
+        return true;
+      }),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
     }
 
-    const payload = {
-      id: user.id,
-      email: user.email,
-      role: Number(user.role),
-      remember_token: user.remember_token || null
-    };
+    const models = getModels();
+    const { identifier } = req.body;
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET);
+    try {
+      let user = await models.User.findOne({
+        where: {
+          [models.Sequelize.Op.or]: [
+            { email: identifier },
+            { number: identifier },
+          ],
+        },
+      });
 
-    return res.json({
-      message: 'Login successful (no password)',
-      token,
-      user: { id: user.id, email: user.email, role: Number(user.role) }
-    });
-  } catch (err) {
-    console.error('[Quick Auth Error]', err);
-    return res.status(500).json({ error: 'Server error' });
+      if (user) {
+        const payload = {
+          id: user.id,
+          email: user.email,
+          role: Number(user.role),
+        };
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+        return res.json({
+          message: 'Login successful',
+          token,
+          user: { id: user.id, email: user.email, role: Number(user.role) },
+        });
+      } else {
+        const isEmail = /\S+@\S+\.\S+/.test(identifier);
+        const userData = {
+          email: isEmail ? identifier : null, // Set email to identifier or null
+          number: !isEmail ? identifier : null, // Set number to identifier or null
+          name: 'Unknown',
+          password: 'no_password',
+          role: 3,
+        };
+
+        user = await models.User.create(userData);
+        const payload = {
+          id: user.id,
+          email: user.email,
+          role: Number(user.role),
+        };
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+        return res.status(201).json({
+          message: 'User created and logged in successfully',
+          token,
+          user: { id: user.id, email: user.email, role: Number(user.role) },
+        });
+      }
+    } catch (err) {
+      console.error('[Auth Error]', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
   }
-});
+);

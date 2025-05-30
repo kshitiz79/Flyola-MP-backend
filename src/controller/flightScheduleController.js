@@ -313,7 +313,7 @@ async function getSchedulePriceByDay(req, res) {
     if (!schedule.Flight) return res.status(404).json({ error: 'Associated Flight not found' });
 
     const price = parseFloat(schedule.price);
-    const departureDay = schedule.Flight.departure_day; 
+    const departureDay = schedule.Flight.departure_day;
     if (!departureDay) {
       return res.status(400).json({ error: 'Flight departure day not defined' });
     }
@@ -347,22 +347,55 @@ async function getSchedulePriceByDay(req, res) {
       return res.status(400).json({ error: 'Invalid flight departure day' });
     }
 
-    const output = [];
+    // Prepare schedule details
+    let viaStopIds = [];
+    try {
+      viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
+      viaStopIds = viaStopIds.filter((id) => id && Number.isInteger(id) && id !== 0);
+    } catch (e) {
+      console.error(`Error parsing via_stop_id for schedule ${schedule.id}:`, e);
+    }
+
+    // Generate price-by-day data with schedule details
+    const priceByDay = [];
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       if (d.getDay() === targetWeekday) {
         const dateStr = format(d, 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
-        output.push({ date: dateStr, price });
+
+        let availableSeats = 0;
+        let seatError = null;
+        try {
+          const seats = await getAvailableSeats({
+            models,
+            schedule_id: schedule.id,
+            bookDate: dateStr,
+            transaction: null,
+          });
+          availableSeats = seats.length;
+        } catch (error) {
+          console.warn(`Failed to get available seats for schedule ${schedule.id} on ${dateStr}:`, error.message);
+          seatError = error.message;
+        }
+
+        priceByDay.push({
+          date: dateStr,
+          price,
+          schedule: {
+            ...schedule.toJSON(),
+            via_stop_id: JSON.stringify(viaStopIds),
+            availableSeats,
+            seatError: seatError || undefined,
+          },
+        });
       }
     }
 
-    res.json(output);
+    res.json(priceByDay);
   } catch (err) {
     console.error('getSchedulePriceByDay error:', err);
-    res.status(500).json({ error: 'Failed to get prices by day' });
+    res.status(500).json({ error: 'Failed to get prices by day', details: err.message });
   }
 }
-
-
 
 module.exports = {
   getFlightSchedules,
