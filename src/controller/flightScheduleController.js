@@ -3,8 +3,6 @@ const { getAvailableSeats } = require('../utils/seatUtils');
 const getModels = () => require('../model');
 const { getRouteAirports } = require('./flightController');
 
-
-
 const getRoute = (flight) => {
   return getRouteAirports({
     start_airport_id: flight.start_airport_id,
@@ -12,8 +10,6 @@ const getRoute = (flight) => {
     airport_stop_ids: flight.airport_stop_ids,
   });
 };
-
-
 
 async function getFlightSchedules(req, res) {
   const models = getModels();
@@ -68,7 +64,7 @@ async function getFlightSchedules(req, res) {
             via_stop_id: JSON.stringify(viaStopIds),
             departure_date,
             availableSeats,
-            seatError: seatError || undefined, // Include error if present
+            seatError: seatError || undefined,
           });
         }
       }
@@ -137,7 +133,9 @@ async function addFlightSchedule(req, res) {
     if (!route.includes(departure_airport_id) || !route.includes(arrival_airport_id)) {
       return res.status(400).json({ error: 'Invalid departure or arrival airport' });
     }
-    if (route.indexOf(departure_airport_id) >= route.indexOf(arrival_airport_id)) {
+    const depIdx = route.indexOf(departure_airport_id);
+    const arrIdx = route.lastIndexOf(arrival_airport_id);
+    if (depIdx < 0 || arrIdx < 0 || depIdx >= arrIdx) {
       return res.status(400).json({ error: 'Departure must precede arrival in flight route' });
     }
 
@@ -155,7 +153,7 @@ async function addFlightSchedule(req, res) {
     res.status(201).json({ id: schedule.id });
   } catch (err) {
     console.error('addFlightSchedule error:', err);
-    res.status(500).json({ error: 'Failed to add flight schedule' });
+    res.status(500).json({ error: 'Failed to add flight schedule', details: err.message });
   }
 }
 
@@ -175,13 +173,14 @@ async function updateFlightSchedule(req, res) {
     const depId = departure_airport_id || schedule.departure_airport_id;
     const arrId = arrival_airport_id || schedule.arrival_airport_id;
     const route = getRoute(flight);
-    console.log('Flight route:', route, 'depId:', depId, 'arrId:', arrId);
 
     if (route.length > 0) {
       if (!route.includes(depId) || !route.includes(arrId)) {
         return res.status(400).json({ error: `Invalid departure (ID: ${depId}) or arrival (ID: ${arrId}) airport` });
       }
-      if (route.indexOf(depId) >= route.indexOf(arrId)) {
+      const depIdx = route.indexOf(depId);
+      const arrIdx = route.lastIndexOf(arrId);
+      if (depIdx < 0 || arrIdx < 0 || depIdx >= arrIdx) {
         return res.status(400).json({ error: 'Departure must precede arrival in flight route' });
       }
     } else {
@@ -225,6 +224,7 @@ async function updateFlightSchedule(req, res) {
     res.status(500).json({ error: 'Failed to update schedule', details: err.message });
   }
 }
+
 async function deleteFlightSchedule(req, res) {
   const models = getModels();
   try {
@@ -282,7 +282,15 @@ async function updateFlightStops(req, res) {
   try {
     const flight = await models.Flight.findByPk(flight_id);
     if (!flight) return res.status(404).json({ error: 'Flight not found' });
-    await flight.update({ airport_stop_ids: JSON.stringify(airport_stop_ids) });
+    let stops;
+    try {
+      stops = Array.isArray(airport_stop_ids) ? airport_stop_ids : JSON.parse(airport_stop_ids || '[]');
+      stops = [...new Set(stops.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+    } catch (e) {
+      console.warn(`Failed to parse airport_stop_ids: ${airport_stop_ids}`, e);
+      stops = [];
+    }
+    await flight.update({ airport_stop_ids: JSON.stringify(stops) });
     res.json({ message: 'Flight stops updated' });
   } catch (err) {
     console.error('updateFlightStops error:', err);
@@ -290,15 +298,10 @@ async function updateFlightStops(req, res) {
   }
 }
 
-
-
-
-
-
 async function getSchedulePriceByDay(req, res) {
   const models = getModels();
   const scheduleId = req.query.schedule_id || req.params.id;
-  const monthQuery = req.query.month; // e.g. "2025-05"
+  const monthQuery = req.query.month;
 
   if (!scheduleId) {
     return res.status(400).json({ error: 'schedule_id is required' });
@@ -318,7 +321,6 @@ async function getSchedulePriceByDay(req, res) {
       return res.status(400).json({ error: 'Flight departure day not defined' });
     }
 
-    // Determine year and month
     let year, month;
     if (monthQuery) {
       [year, month] = monthQuery.split('-').map(Number);
@@ -331,7 +333,6 @@ async function getSchedulePriceByDay(req, res) {
     const startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
     const endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
 
-    // Map weekday string to number (0 = Sunday ... 6 = Saturday)
     const weekdayMap = {
       Sunday: 0,
       Monday: 1,
@@ -347,7 +348,6 @@ async function getSchedulePriceByDay(req, res) {
       return res.status(400).json({ error: 'Invalid flight departure day' });
     }
 
-    // Prepare schedule details
     let viaStopIds = [];
     try {
       viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
@@ -356,7 +356,6 @@ async function getSchedulePriceByDay(req, res) {
       console.error(`Error parsing via_stop_id for schedule ${schedule.id}:`, e);
     }
 
-    // Generate price-by-day data with schedule details
     const priceByDay = [];
     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       if (d.getDay() === targetWeekday) {
@@ -402,9 +401,9 @@ module.exports = {
   addFlightSchedule,
   updateFlightSchedule,
   deleteFlightSchedule,
-  activateAllFlightSchedules,     
+  activateAllFlightSchedules,
   editAllFlightSchedules,
   deleteAllFlightSchedules,
   updateFlightStops,
-   getSchedulePriceByDay,
+  getSchedulePriceByDay,
 };

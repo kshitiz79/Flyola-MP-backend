@@ -1,4 +1,3 @@
-// controller/flightController.js
 const { format, toZonedTime } = require('date-fns-tz');
 const { Op } = require('sequelize');
 const getModels = () => require('../model');
@@ -30,43 +29,76 @@ exports.getRouteAirports = getRouteAirports;
 async function validateFlightBody(body, isUpdate = false, flightId = null) {
   const { flight_number, start_airport_id, end_airport_id, airport_stop_ids = [], seat_limit, departure_day } = body;
 
+  // Validate start and end airport IDs
+  if (!Number.isInteger(start_airport_id) || start_airport_id <= 0) {
+    throw new Error('start_airport_id must be a positive integer');
+  }
+  if (!Number.isInteger(end_airport_id) || end_airport_id <= 0) {
+    throw new Error('end_airport_id must be a positive integer');
+  }
+
+  // Initialize stops safely
+  let stops;
+  try {
+    stops = Array.isArray(airport_stop_ids) ? airport_stop_ids : JSON.parse(airport_stop_ids || '[]');
+    stops = [...new Set(stops.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+  } catch (e) {
+    console.warn(`Failed to parse airport_stop_ids: ${airport_stop_ids}`, e);
+    stops = [];
+  }
+
+  // Validation checks
   if (!isUpdate) {
-    if (!flight_number) throw new Error('flight_number is required');
-    if (!start_airport_id || !end_airport_id) throw new Error('start_airport_id & end_airport_id are required');
+    if (!flight_number || !flight_number.trim()) throw new Error('flight_number is required');
     if (!departure_day) throw new Error('departure_day is required');
   }
-  if (start_airport_id === end_airport_id) throw new Error('start and end airports must differ');
 
-  const stops = Array.isArray(airport_stop_ids) ? airport_stop_ids : JSON.parse(airport_stop_ids || '[]');
+  // Allow same start and end airports only if there are stops
+  if (start_airport_id === end_airport_id && stops.length === 0) {
+    throw new Error('For flights starting and ending at the same airport, there must be at least one stop');
+  }
 
-  if (stops.some(id => !Number.isInteger(id) || id <= 0)) throw new Error('Invalid stop id');
-  if (new Set(stops).size !== stops.length) throw new Error('Duplicate stop ids');
-  if (stops.includes(start_airport_id) || stops.includes(end_airport_id)) throw new Error('Stops cannot include start or end');
+  // Validate stops
+  if (stops.includes(start_airport_id) || stops.includes(end_airport_id)) {
+    throw new Error('Stops cannot include start or end airports');
+  }
 
-  await validateIdsExist(getModels().Airport, [...stops, start_airport_id, end_airport_id]);
+  // Validate airport IDs exist
+  const airportIdsToCheck = [...new Set([...stops, start_airport_id, end_airport_id])].filter(id => id);
+  if (airportIdsToCheck.length === 0) {
+    throw new Error('No valid airport IDs provided');
+  }
+  try {
+    await validateIdsExist(getModels().Airport, airportIdsToCheck);
+  } catch (err) {
+    console.error('validateIdsExist error:', err.message, { airportIdsToCheck });
+    throw err;
+  }
 
+  // Check for duplicate flight number
   if (flight_number) {
     const dup = await getModels().Flight.findOne({
       where: {
         flight_number,
-        ...(isUpdate && { id: { [Op.ne]: flightId } }),
+        ...(isUpdate && flightId && { id: { [Op.ne]: flightId } }),
       },
     });
     if (dup) throw new Error(`flight_number ${flight_number} already exists`);
   }
 
+  // Validate seat limit
   if (seat_limit !== undefined && (!Number.isInteger(seat_limit) || seat_limit < 1)) {
     throw new Error('seat_limit must be a positive integer');
   }
 
+  // Validate departure day
   const validDays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   if (departure_day && !validDays.includes(departure_day)) {
     throw new Error('departure_day must be a valid day');
   }
 
-  return { stops };
+  return { ...body, airport_stop_ids: stops };
 }
-
 function getNextWeekday(weekday) {
   const map = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
   const now = toZonedTime(new Date(), 'Asia/Kolkata');
@@ -109,10 +141,10 @@ exports.getFlights = async (req, res) => {
 
 exports.addFlight = async (req, res) => {
   try {
-    const { stops } = await validateFlightBody(req.body);
+    const validatedBody = await validateFlightBody(req.body);
     const newFlight = await getModels().Flight.create({
-      ...req.body,
-      airport_stop_ids: stops,
+      ...validatedBody,
+      airport_stop_ids: validatedBody.airport_stop_ids,
     });
     res.status(201).json({ id: newFlight.id });
   } catch (err) {
@@ -125,8 +157,8 @@ exports.updateFlight = async (req, res) => {
     const flight = await getModels().Flight.findByPk(req.params.id);
     if (!flight) return res.status(404).json({ error: 'Flight not found' });
 
-    const { stops } = await validateFlightBody(req.body, true, flight.id);
-    await flight.update({ ...req.body, airport_stop_ids: stops });
+    const validatedBody = await validateFlightBody(req.body, true, flight.id);
+    await flight.update({ ...validatedBody, airport_stop_ids: validatedBody.airport_stop_ids });
     res.json({ flight });
   } catch (err) {
     res.status(400).json({ error: err.message });
