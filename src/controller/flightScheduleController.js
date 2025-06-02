@@ -396,6 +396,90 @@ async function getSchedulePriceByDay(req, res) {
   }
 }
 
+
+
+
+async function getScheduleBetweenAirportDate(req, res) {
+  const models = getModels();
+  const { departure_airport_id, arrival_airport_id, date } = req.query;
+
+  if (!departure_airport_id || !arrival_airport_id || !date) {
+    return res.status(400).json({ error: 'departure_airport_id, arrival_airport_id, and date are required' });
+  }
+
+  try {
+    // Validate date format (YYYY-MM-DD)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid date format, expected YYYY-MM-DD' });
+    }
+
+    // Parse the date in Asia/Kolkata timezone
+    const queryDate = toZonedTime(new Date(date), 'Asia/Kolkata');
+    const weekday = format(queryDate, 'EEEE', { timeZone: 'Asia/Kolkata' });
+
+    // Find schedules where the associated Flight's departure_day matches the query date's weekday
+    const schedules = await models.FlightSchedule.findAll({
+      where: {
+        departure_airport_id,
+        arrival_airport_id,
+      },
+      include: [
+        {
+          model: models.Flight,
+          where: { departure_day: weekday },
+          required: true, // Ensure Flight exists and matches the weekday
+        },
+      ],
+    });
+
+    if (schedules.length === 0) {
+      return res.status(404).json({ error: 'No schedules found for the given criteria' });
+    }
+
+    // Process schedules to include available seats and via_stop_id as JSON
+    const output = await Promise.all(
+      schedules.map(async (schedule) => {
+        let viaStopIds = [];
+        try {
+          viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
+          viaStopIds = viaStopIds.filter((id) => id && Number.isInteger(id) && id !== 0);
+        } catch (e) {
+          console.error(`Error parsing via_stop_id for schedule ${schedule.id}:`, e);
+        }
+
+        let availableSeats = 0;
+        let seatError = null;
+        try {
+          const seats = await getAvailableSeats({
+            models,
+            schedule_id: schedule.id,
+            bookDate: date,
+            transaction: null,
+          });
+          availableSeats = seats.length;
+        } catch (error) {
+          console.warn(`Failed to get available seats for schedule ${schedule.id} on ${date}:`, error.message);
+          seatError = error.message;
+        }
+
+        return {
+          ...schedule.toJSON(),
+          via_stop_id: JSON.stringify(viaStopIds),
+          departure_date: date,
+          availableSeats,
+          seatError: seatError || undefined,
+        };
+      })
+    );
+
+    res.json(output);
+  } catch (err) {
+    console.error('getScheduleBetweenAirportDate error:', err);
+    res.status(500).json({ error: 'Failed to get schedules by airport and date', details: err.message });
+  }
+}
+
+
 module.exports = {
   getFlightSchedules,
   addFlightSchedule,
@@ -406,4 +490,5 @@ module.exports = {
   deleteAllFlightSchedules,
   updateFlightStops,
   getSchedulePriceByDay,
+  getScheduleBetweenAirportDate,
 };

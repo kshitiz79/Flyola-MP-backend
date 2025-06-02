@@ -32,7 +32,7 @@ const createOrder = async (req, res) => {
           name: 'Flyola Aviation QR Payment',
           usage: 'single_use',
           fixed_amount: true,
-          amount: numericAmount * 100, // Convert to paise
+          amount: numericAmount * 100, 
           currency: 'INR',
           description: 'Flight booking payment via QR code',
         });
