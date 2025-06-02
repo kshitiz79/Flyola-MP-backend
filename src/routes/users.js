@@ -7,7 +7,7 @@ require('dotenv').config();
 const { authenticate } = require('../middleware/auth');
 
 const { body, validationResult } = require('express-validator'); 
-
+const { buildCookieOptions } = require('../utils/cookie');
 
 
 const router = express.Router();
@@ -120,7 +120,8 @@ router.post('/register', async (req, res) => {
     res.cookie('token', token, buildCookieOptions());
     return res.status(201).json({
       message: 'User registered successfully',
-      user: { id: newUser.id, email, role: 3 }
+      user: { id: newUser.id, email, role: 3 },
+      token // Include token in response body for frontend
     });
   } catch (err) {
     console.error('[Register Error]', err);
@@ -154,7 +155,8 @@ router.post('/register-admin', async (req, res) => {
     res.cookie('token', token, buildCookieOptions());
     return res.status(201).json({
       message: 'Admin registered successfully',
-      user: { id: newUser.id, email, role: 1 }
+      user: { id: newUser.id, email, role: 1 },
+      token // Include token in response body for frontend
     });
   } catch (err) {
     console.error('[Register Admin Error]', err);
