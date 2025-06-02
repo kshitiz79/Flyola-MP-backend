@@ -39,10 +39,11 @@ async function getAvailableSeats({ models, schedule_id, bookDate, transaction = 
   // Get flight route for segment validation
   const route = getRoute(flight);
   const depIdx = route.indexOf(schedule.departure_airport_id);
-  const arrIdx = route.indexOf(schedule.arrival_airport_id);
+  // Use lastIndexOf for arrival to handle circular routes (e.g., A → B → C → D → A)
+  const arrIdx = route.lastIndexOf(schedule.arrival_airport_id);
   if (depIdx < 0 || arrIdx < 0 || depIdx >= arrIdx) {
     console.warn(`Invalid departure/arrival for schedule ${schedule_id}: departure_airport_id=${schedule.departure_airport_id}, arrival_airport_id=${schedule.arrival_airport_id}, route=${JSON.stringify(route)}`);
-    return []; // Return empty array instead of throwing
+    return [];
   }
 
   // Get all schedules for this flight
@@ -56,7 +57,7 @@ async function getAvailableSeats({ models, schedule_id, bookDate, transaction = 
   const relevantScheduleIds = allSchedules
     .filter((s) => {
       const sDepIdx = route.indexOf(s.departure_airport_id);
-      const sArrIdx = route.indexOf(s.arrival_airport_id);
+      const sArrIdx = route.lastIndexOf(s.arrival_airport_id); // Use lastIndexOf for consistency
       return (
         sDepIdx !== -1 &&
         sArrIdx !== -1 &&
@@ -80,7 +81,6 @@ async function getAvailableSeats({ models, schedule_id, bookDate, transaction = 
   const availableSeats = allSeats.filter((seat) => !bookedSeats.has(seat));
   return availableSeats;
 }
-
 async function sumSeats({ models, schedule_id, bookDate, transaction = null }) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(bookDate)) {
     throw new Error('bookDate must be YYYY-MM-DD');

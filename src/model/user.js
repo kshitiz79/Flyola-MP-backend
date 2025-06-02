@@ -27,6 +27,42 @@ const User = sequelize.define(
       allowNull: true, // Changed to allow null for email signups
       unique: true,
     },
+    dob: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    gender: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    marital_status: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    anniversary_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    nationality: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    city: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    state: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    profile_picture: {
+      type: DataTypes.STRING, // store image URL or filename
+      allowNull: true,
+    },
+    pan_card_number: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     role: {
       type: DataTypes.INTEGER,
       defaultValue: 3,

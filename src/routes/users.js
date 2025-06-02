@@ -317,3 +317,86 @@ router.post(
     }
   }
 );
+
+
+
+
+router.get('/profile', authenticate(), async (req, res) => {
+  const models = getModels();
+  try {
+    const user = await models.User.findByPk(req.user.id, {
+      attributes: [
+        'id',
+        'name',
+        'dob',
+        'gender',
+        'marital_status',
+        'anniversary_date',
+        'nationality',
+        'city',
+        'state',
+        'profile_picture',
+        'pan_card_number',
+        'email',
+        'number',
+      ],
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    return res.json({ profile: user });
+  } catch (err) {
+    console.error('[GET Profile Error]', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+
+router.post('/profile', authenticate(), async (req, res) => {
+  const models = getModels();
+  const {
+    name,
+    dob,
+    gender,
+    marital_status,
+    anniversary_date,
+    nationality,
+    city,
+    state,
+    profile_picture,
+    pan_card_number,
+    email,
+    number,
+  } = req.body;
+
+  try {
+    const user = await models.User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Update only fields if provided
+    if (name !== undefined) user.name = name;
+    if (dob !== undefined) user.dob = dob;
+    if (gender !== undefined) user.gender = gender;
+    if (marital_status !== undefined) user.marital_status = marital_status;
+    if (anniversary_date !== undefined) user.anniversary_date = anniversary_date;
+    if (nationality !== undefined) user.nationality = nationality;
+    if (city !== undefined) user.city = city;
+    if (state !== undefined) user.state = state;
+    if (profile_picture !== undefined) user.profile_picture = profile_picture;
+    if (pan_card_number !== undefined) user.pan_card_number = pan_card_number;
+    if (email !== undefined) user.email = email;
+    if (number !== undefined) user.number = number;
+
+    await user.save();
+
+    return res.json({ message: 'Profile updated successfully', profile: user });
+  } catch (err) {
+    console.error('[POST Profile Error]', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
