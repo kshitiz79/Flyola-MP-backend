@@ -33,9 +33,7 @@ async function addWalletAmount(req, res) {
 async function getAgentWallet(req, res) {
   const { agentId } = req.params;
 
-  if (!req.user || req.user.role !== 1) {
-    return res.status(403).json({ error: 'Forbidden: Only admins can view wallet' });
-  }
+
 
   try {
     const agent = await models.Agent.findByPk(agentId, {
