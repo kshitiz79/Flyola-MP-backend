@@ -12,6 +12,7 @@ const models = {
   User: require('./user'),
   Passenger: require('./passanger'),
   Agent: require('./Agent'),
+  SeatHold: require('./seatHold'), 
   sequelize,
   Sequelize,
 };
@@ -34,5 +35,6 @@ models.Billing.belongsTo(models.User, { foreignKey: 'user_id' });
 models.Flight.hasMany(models.FlightSchedule, { foreignKey: 'flight_id' });
 models.Passenger.belongsTo(models.Booking, { foreignKey: 'bookingId' });
 models.Booking.belongsTo(models.Agent, { foreignKey: 'agentId', onDelete: 'SET NULL' }); // New relationship
+models.SeatHold.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id' });
 
 module.exports = models;

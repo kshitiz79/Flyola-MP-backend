@@ -242,11 +242,10 @@ async function bookSeatsWithoutPayment(req, res) {
 
   const totalFare = parseFloat(booking.totalFare);
   if (!Number.isFinite(totalFare) || totalFare <= 0) {
-    return res.status(400).json({ success: false, error: 'Total fare must be a positive ' });
+    return res.status(400).json({ success: false, error: 'Total fare must be a positive number' });
   }
 
   try {
-    // Validate agentId and wallet balance
     const agent = await models.Agent.findByPk(booking.agentId);
     if (!agent) {
       return res.status(400).json({ success: false, error: `Invalid agentId: ${booking.agentId}` });
@@ -261,6 +260,7 @@ async function bookSeatsWithoutPayment(req, res) {
         models,
         schedule_id: bookedSeat.schedule_id,
         bookDate: bookedSeat.bookDate,
+        userId: booking.bookedUserId, // Use bookedUserId as held_by
         transaction: t,
       });
       if (!availableSeats) {
@@ -298,6 +298,16 @@ async function bookSeatsWithoutPayment(req, res) {
         );
       }
 
+      await models.SeatHold.destroy({
+        where: {
+          schedule_id: bookedSeat.schedule_id,
+          bookDate: bookedSeat.bookDate,
+          seat_label: bookedSeat.seat_labels,
+          held_by: booking.bookedUserId, // Match with held_by
+        },
+        transaction: t,
+      });
+
       await models.Passenger.bulkCreate(
         passengers.map((p) => ({
           bookingId: newBooking.id,
@@ -310,7 +320,6 @@ async function bookSeatsWithoutPayment(req, res) {
         { transaction: t }
       );
 
-      // Deduct totalFare from wallet_amount and increment no_of_ticket_booked
       await agent.decrement('wallet_amount', { by: totalFare, transaction: t });
       await agent.increment('no_of_ticket_booked', { by: booking.noOfPassengers, transaction: t });
 
@@ -358,7 +367,6 @@ async function bookSeatsWithoutPayment(req, res) {
     });
   }
 }
-
 async function getIrctcBookings(req, res) {
   console.log('Reached getIrctcBookings endpoint');
   try {

@@ -23,7 +23,7 @@ function generateSeatLabels(seatLimit) {
   return seats;
 }
 
-async function getAvailableSeats({ models, schedule_id, bookDate, transaction = null }) {
+async function getAvailableSeats({ models, schedule_id, bookDate, userId = null, transaction = null }) {
   const schedule = await models.FlightSchedule.findByPk(schedule_id, {
     include: [{ model: models.Flight }],
     transaction,
@@ -36,28 +36,24 @@ async function getAvailableSeats({ models, schedule_id, bookDate, transaction = 
 
   const allSeats = generateSeatLabels(flight.seat_limit);
 
-  // Get flight route for segment validation
   const route = getRoute(flight);
   const depIdx = route.indexOf(schedule.departure_airport_id);
-  // Use lastIndexOf for arrival to handle circular routes (e.g., A → B → C → D → A)
   const arrIdx = route.lastIndexOf(schedule.arrival_airport_id);
   if (depIdx < 0 || arrIdx < 0 || depIdx >= arrIdx) {
     console.warn(`Invalid departure/arrival for schedule ${schedule_id}: departure_airport_id=${schedule.departure_airport_id}, arrival_airport_id=${schedule.arrival_airport_id}, route=${JSON.stringify(route)}`);
     return [];
   }
 
-  // Get all schedules for this flight
   const allSchedules = await models.FlightSchedule.findAll({
     where: { flight_id: flight.id },
     attributes: ['id', 'departure_airport_id', 'arrival_airport_id'],
     transaction,
   });
 
-  // Filter schedules that overlap with the requested segment
   const relevantScheduleIds = allSchedules
     .filter((s) => {
       const sDepIdx = route.indexOf(s.departure_airport_id);
-      const sArrIdx = route.lastIndexOf(s.arrival_airport_id); // Use lastIndexOf for consistency
+      const sArrIdx = route.lastIndexOf(s.arrival_airport_id);
       return (
         sDepIdx !== -1 &&
         sArrIdx !== -1 &&
@@ -67,7 +63,6 @@ async function getAvailableSeats({ models, schedule_id, bookDate, transaction = 
     })
     .map((s) => s.id);
 
-  // Get all booked seats for relevant schedules on bookDate
   const bookedSeatsRows = await models.BookedSeat.findAll({
     where: {
       schedule_id: relevantScheduleIds,
@@ -77,10 +72,39 @@ async function getAvailableSeats({ models, schedule_id, bookDate, transaction = 
     transaction,
   });
 
+  const now = new Date();
+  let heldSeatsRows;
+  if (userId) {
+    heldSeatsRows = await models.SeatHold.findAll({
+      where: {
+        schedule_id: relevantScheduleIds,
+        bookDate,
+        expires_at: { [models.Sequelize.Op.gt]: now },
+        held_by: { [models.Sequelize.Op.ne]: userId },
+      },
+      attributes: ['seat_label'],
+      transaction,
+    });
+  } else {
+    heldSeatsRows = await models.SeatHold.findAll({
+      where: {
+        schedule_id: relevantScheduleIds,
+        bookDate,
+        expires_at: { [models.Sequelize.Op.gt]: now },
+      },
+      attributes: ['seat_label'],
+      transaction,
+    });
+  }
+
   const bookedSeats = new Set(bookedSeatsRows.map((row) => row.seat_label));
-  const availableSeats = allSeats.filter((seat) => !bookedSeats.has(seat));
+  const heldByOthers = new Set(heldSeatsRows.map((row) => row.seat_label));
+  const unavailableSeats = new Set([...bookedSeats, ...heldByOthers]);
+
+  const availableSeats = allSeats.filter((seat) => !unavailableSeats.has(seat));
   return availableSeats;
 }
+
 async function sumSeats({ models, schedule_id, bookDate, transaction = null }) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(bookDate)) {
     throw new Error('bookDate must be YYYY-MM-DD');
