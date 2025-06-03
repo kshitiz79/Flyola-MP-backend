@@ -418,10 +418,12 @@ async function getScheduleBetweenAirportDate(req, res) {
     const weekday = format(queryDate, 'EEEE', { timeZone: 'Asia/Kolkata' });
 
     // Find schedules where the associated Flight's departure_day matches the query date's weekday
+    // and the schedule status is active (status: 1)
     const schedules = await models.FlightSchedule.findAll({
       where: {
         departure_airport_id,
         arrival_airport_id,
+        status: 1, // Filter for active schedules
       },
       include: [
         {
@@ -433,7 +435,7 @@ async function getScheduleBetweenAirportDate(req, res) {
     });
 
     if (schedules.length === 0) {
-      return res.status(404).json({ error: 'No schedules found for the given criteria' });
+      return res.status(404).json({ error: 'No active schedules found for the given criteria' });
     }
 
     // Process schedules to include available seats and via_stop_id as JSON
@@ -475,10 +477,9 @@ async function getScheduleBetweenAirportDate(req, res) {
     res.json(output);
   } catch (err) {
     console.error('getScheduleBetweenAirportDate error:', err);
-    res.status(500).json({ error: 'Failed to get schedules by airport and date', details: err.message });
+    res.status(500).json({ error: 'Failed to get active schedules by airport and date', details: err.message });
   }
 }
-
 
 module.exports = {
   getFlightSchedules,
