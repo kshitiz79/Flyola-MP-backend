@@ -2,6 +2,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 const getModels = () => require('../model');
 require('dotenv').config();
 const { authenticate } = require('../middleware/auth');
@@ -12,7 +13,18 @@ const { buildCookieOptions } = require('../utils/cookie');
 
 const router = express.Router();
 
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'kshitizmaurya6@gmail.com',
+    pass: 'augs snhv vjmw njfg',
+  },
+});
 
+// Generate 6-digit OTP
+const generateOtp = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
 
 
 router.post('/login', async (req, res) => {
@@ -39,7 +51,6 @@ router.post('/login', async (req, res) => {
     };
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-    // Send token in response body (not cookie)
     return res.json({
       message: 'Login successful',
       token,
@@ -50,6 +61,93 @@ router.post('/login', async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 });
+
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  const models = getModels();
+
+  try {
+    const user = await models.User.findOne({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const otp = generateOtp();
+    user.remember_token = otp;
+    await user.save();
+
+    const mailOptions = {
+      from: 'flyola@gmail.com',
+      to: email,
+      subject: 'Password Reset OTP',
+      text: `Your OTP for password reset is: ${otp}. It is valid for 10 minutes.`,
+    };
+
+    await transporter.sendMail(mailOptions);
+    return res.json({ message: 'OTP sent to your email' });
+  } catch (err) {
+    console.error('[Forgot Password Error]', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/verify-otp', async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+  const models = getModels();
+
+  try {
+    const user = await models.User.findOne({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (user.remember_token !== otp) {
+      return res.status(400).json({ error: 'Invalid OTP' });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 12);
+    user.remember_token = null; // Clear OTP after use
+    await user.save();
+
+    return res.json({ message: 'Password reset successfully' });
+  } catch (err) {
+    console.error('[Verify OTP Error]', err);
+    return res.status(400).json({ error: 'Invalid OTP or server error' });
+  }
+});
+
+router.post('/refresh-token', async (req, res) => {
+  const models = getModels();
+  const oldToken = req.cookies.token;
+  if (!oldToken) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+
+  try {
+    const decoded = jwt.verify(oldToken, process.env.JWT_SECRET, { ignoreExpiration: true });
+    const user = await models.User.findOne({ where: { id: decoded.id } });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const payload = {
+      id: user.id,
+      email: user.email,
+      role: Number(user.role),
+      remember_token: user.remember_token || null
+    };
+    const newToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    res.cookie('token', newToken, buildCookieOptions());
+    return res.json({
+      message: 'Token refreshed',
+      user: { id: user.id, email: user.email, role: Number(user.role) }
+    });
+  } catch (err) {
+    console.error('[Refresh Token Error]', err);
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+})
 /** Refresh Token **/
 router.post('/refresh-token', async (req, res) => {
   const models = getModels();
