@@ -404,46 +404,50 @@ async function getScheduleBetweenAirportDate(req, res) {
   const { departure_airport_id, arrival_airport_id, date } = req.query;
 
   if (!departure_airport_id || !arrival_airport_id || !date) {
-    return res.status(400).json({ error: 'departure_airport_id, arrival_airport_id, and date are required' });
+    return res.status(400).json({
+      success: false,
+      error: 'departure_airport_id, arrival_airport_id, and date are required',
+    });
   }
 
   try {
     // Validate date format (YYYY-MM-DD)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ error: 'Invalid date format, expected YYYY-MM-DD' });
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid date format, expected YYYY-MM-DD',
+      });
     }
 
     // Parse the date in Asia/Kolkata timezone
     const queryDate = toZonedTime(new Date(date), 'Asia/Kolkata');
     const weekday = format(queryDate, 'EEEE', { timeZone: 'Asia/Kolkata' });
 
-    // Find schedules where the associated Flight's departure_day matches the query date's weekday
-    // and the schedule status is active (status: 1)
+    // Find schedules
     const schedules = await models.FlightSchedule.findAll({
       where: {
         departure_airport_id,
         arrival_airport_id,
-        status: 1, // Filter for active schedules
+        status: 1,
       },
       include: [
         {
           model: models.Flight,
           where: { departure_day: weekday },
-          required: true, // Ensure Flight exists and matches the weekday
+          required: true,
         },
       ],
     });
 
- if (schedules.length === 0) {
-  return res.status(200).json({
-    success: false,
-    message: 'No active schedules found for the given criteria',
-    data: [],
-  });
-}
+    if (schedules.length === 0) {
+      return res.status(200).json({
+        success: false,
+        message: 'No active schedules found for the given criteria',
+        data: [],
+      });
+    }
 
-
-    // Process schedules to include available seats and via_stop_id as JSON
+    // Process results
     const output = await Promise.all(
       schedules.map(async (schedule) => {
         let viaStopIds = [];
@@ -479,12 +483,22 @@ async function getScheduleBetweenAirportDate(req, res) {
       })
     );
 
-    res.json(output);
+    // ✅ Success response
+    return res.status(200).json({
+      success: true,
+      message: 'Schedules fetched successfully',
+      data: output,
+    });
   } catch (err) {
     console.error('getScheduleBetweenAirportDate error:', err);
-    res.status(500).json({ error: 'Failed to get active schedules by airport and date', details: err.message });
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get active schedules by airport and date',
+      details: err.message,
+    });
   }
 }
+
 
 module.exports = {
   getFlightSchedules,
