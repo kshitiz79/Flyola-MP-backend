@@ -13,6 +13,9 @@ const models = {
   Passenger: require('./passanger'),
   Agent: require('./Agent'),
   SeatHold: require('./seatHold'), 
+  Joy_Ride_Slot: require('./joyRide'),
+  JoyRideBooking : require('./joyRideBooking'),
+
   sequelize,
   Sequelize,
 };

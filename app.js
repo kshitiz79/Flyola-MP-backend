@@ -64,7 +64,8 @@ const flightRoutes = require('./src/routes/flightRoutes');
 app.use('/flights', flightRoutes);
 
 
-
+const joyrideSlotRouter = require('./src/routes/joyRide');
+app.use('/api/joyride-slots', joyrideSlotRouter);
 
 const userRoutes = require('./src/routes/users');
 app.use('/users', userRoutes);

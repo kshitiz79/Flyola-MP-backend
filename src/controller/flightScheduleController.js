@@ -434,9 +434,14 @@ async function getScheduleBetweenAirportDate(req, res) {
       ],
     });
 
-    if (schedules.length === 0) {
-      return res.status(404).json({ error: 'No active schedules found for the given criteria' });
-    }
+ if (schedules.length === 0) {
+  return res.status(200).json({
+    success: false,
+    message: 'No active schedules found for the given criteria',
+    data: [],
+  });
+}
+
 
     // Process schedules to include available seats and via_stop_id as JSON
     const output = await Promise.all(
