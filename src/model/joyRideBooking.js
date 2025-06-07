@@ -7,6 +7,14 @@ const JoyRideBooking = sequelize.define('JoyRideBooking', {
     primaryKey: true,
     autoIncrement: true,
   },
+  user_id: {
+    type: DataTypes.BIGINT.UNSIGNED,
+    allowNull: false,
+    references: {
+      model: 'users',
+      key: 'id',
+    },
+  },
   slot_id: {
     type: DataTypes.BIGINT.UNSIGNED,
     allowNull: false,
@@ -40,7 +48,6 @@ const JoyRideBooking = sequelize.define('JoyRideBooking', {
   updated_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
-    onUpdate: DataTypes.NOW,
   },
 }, {
   tableName: 'joyride_bookings',
@@ -50,14 +57,22 @@ const JoyRideBooking = sequelize.define('JoyRideBooking', {
       name: 'idx_slot_id',
       fields: ['slot_id'],
     },
+    {
+      name: 'idx_user_id',
+      fields: ['user_id'],
+    },
   ],
 });
 
-// Define relationship
+// Define relationships
 JoyRideBooking.associate = (models) => {
   JoyRideBooking.belongsTo(models.Joy_Ride_Slot, {
     foreignKey: 'slot_id',
     as: 'slot',
+  });
+  JoyRideBooking.belongsTo(models.User, {
+    foreignKey: 'user_id',
+    as: 'user',
   });
 };
 

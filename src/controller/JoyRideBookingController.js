@@ -1,10 +1,12 @@
-const models = require('./../model'); // Adjust path to match your setup
+const models = require('./../model');
 
-// Get all joyride bookings (for admin use)
 const getJoyrideBookings = async (req, res) => {
   try {
     const bookings = await models.JoyRideBooking.findAll({
-      include: [{ model: models.Joy_Ride_Slot, as: 'slot' }],
+      include: [
+        { model: models.Joy_Ride_Slot, as: 'slot' },
+        { model: models.User, as: 'user', attributes: ['id', 'name', 'email'] },
+      ],
     });
     res.status(200).json(bookings);
   } catch (err) {
@@ -12,16 +14,22 @@ const getJoyrideBookings = async (req, res) => {
   }
 };
 
-// Create a new joyride booking
 const createJoyrideBooking = async (req, res) => {
   const { slotId, email, phone, passengers, totalPrice } = req.body;
+  const userId = req.user?.id; // Safely access user_id
 
-  // Validate input
-  if (!slotId || !email || !phone || !passengers || !Array.isArray(passengers) || passengers.length === 0 || !totalPrice) {
-    return res.status(400).json({ error: 'Slot ID, email, phone, passengers, and total price are required' });
+  if (!req.user) {
+    console.error('[JoyRideBookingController] No user attached to request:', {
+      body: req.body,
+      headers: req.headers,
+    });
+    return res.status(401).json({ error: 'Unauthorized: User not authenticated' });
   }
 
-  // Validate passengers
+  if (!userId || !slotId || !email || !phone || !passengers || !Array.isArray(passengers) || passengers.length === 0 || !totalPrice) {
+    return res.status(400).json({ error: 'User ID, slot ID, email, phone, passengers, and total price are required' });
+  }
+
   for (const passenger of passengers) {
     if (!passenger.name || !passenger.weight || isNaN(passenger.weight) || passenger.weight <= 0) {
       return res.status(400).json({ error: 'Each passenger must have a valid name and positive weight' });
@@ -29,20 +37,16 @@ const createJoyrideBooking = async (req, res) => {
   }
 
   try {
-    // Start a transaction to ensure atomicity
     const result = await models.sequelize.transaction(async (t) => {
-      // Find the slot
       const slot = await models.Joy_Ride_Slot.findByPk(slotId, { transaction: t });
       if (!slot) {
         throw new Error('Slot not found');
       }
 
-      // Check seat availability
       if (slot.seats < passengers.length) {
         throw new Error(`Not enough seats available. Required: ${passengers.length}, Available: ${slot.seats}`);
       }
 
-      // Calculate total price on server for validation
       const basePrice = slot.price * passengers.length;
       const extraWeightCharges = passengers.reduce((total, passenger) => {
         const weight = parseFloat(passenger.weight);
@@ -50,14 +54,13 @@ const createJoyrideBooking = async (req, res) => {
       }, 0);
       const calculatedTotalPrice = basePrice + extraWeightCharges;
 
-      // Validate client-provided totalPrice
       if (Math.abs(calculatedTotalPrice - totalPrice) > 0.01) {
         throw new Error('Total price mismatch');
       }
 
-      // Create booking
       const booking = await models.JoyRideBooking.create(
         {
+          user_id: userId,
           slot_id: slotId,
           email,
           phone,
@@ -67,7 +70,6 @@ const createJoyrideBooking = async (req, res) => {
         { transaction: t }
       );
 
-      // Update slot seats
       slot.seats -= passengers.length;
       await slot.save({ transaction: t });
 
@@ -79,6 +81,7 @@ const createJoyrideBooking = async (req, res) => {
       booking: result,
     });
   } catch (err) {
+    console.error('[JoyRideBookingController] Booking creation failed:', err.message);
     res.status(400).json({ error: err.message || 'Failed to create booking' });
   }
 };
