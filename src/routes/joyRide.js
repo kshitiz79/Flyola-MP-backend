@@ -1,24 +1,25 @@
 const express = require('express');
 const router = express.Router();
-const joyrideSlotController = require('./../controller/joyrideController');
-const JoyRideBookingController = require('./../controller/JoyRideBookingController');
+const joyrideSlotController = require('../controller/joyrideController');
+const JoyRideBookingController = require('../controller/JoyRideBookingController');
+const joyridePaymentController = require('../controller/joyridePaymentController');
+const { authenticate } = require('../middleware/auth'); // Adjust path to your middleware file
 
-// GET /api/joyride-slots - Retrieve all joyride slots
+// Public routes (no authentication required)
 router.get('/', joyrideSlotController.getJoyrideSlots);
+router.get('/user-joyride-bookings', JoyRideBookingController.getUserJoyrideBookings);
 
-// POST /api/joyride-slots - Add a new joyride slot
-router.post('/', joyrideSlotController.addJoyrideSlot);
-
-// PUT /api/joyride-slots/:id - Update joyride slot details
-router.put('/:id', joyrideSlotController.updateJoyrideSlot);
-
-// DELETE /api/joyride-slots/:id - Delete a joyride slot
-router.delete('/:id', joyrideSlotController.deleteJoyrideSlot);
-
-// GET /api/joyride-slots/joyride-bookings - Retrieve all joyride bookings
+// Protected routes (authentication and role-based access)
 router.get('/joyride-bookings', JoyRideBookingController.getJoyrideBookings);
+router.post('/joyride-bookings', authenticate([3]), JoyRideBookingController.createJoyrideBooking);
+router.post('/create-order', authenticate([3]), joyridePaymentController.createJoyrideOrder);
+router.post('/verify', authenticate([3]), joyridePaymentController.verifyJoyridePayment);
+router.get('/payments', authenticate([1]), joyridePaymentController.getJoyridePayments);
+router.get('/payments/:id', authenticate([1]), joyridePaymentController.getJoyridePaymentById);
 
-// POST /api/joyride-slots/joyride-bookings - Create a new joyride booking
-router.post('/joyride-bookings', JoyRideBookingController.createJoyrideBooking);
+// Admin-only routes (role 1)
+router.post('/',  joyrideSlotController.addJoyrideSlot);
+router.put('/:id', authenticate([1]), joyrideSlotController.updateJoyrideSlot);
+router.delete('/:id', authenticate([1]), joyrideSlotController.deleteJoyrideSlot);
 
 module.exports = router;

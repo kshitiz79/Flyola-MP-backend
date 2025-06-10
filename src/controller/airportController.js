@@ -10,6 +10,9 @@ const getAirports = async (req, res) => {
   }
 };
 
+
+
+
 // Add a new airport
 const addAirport = async (req, res) => {
   const { city, airport_code, airport_name } = req.body;

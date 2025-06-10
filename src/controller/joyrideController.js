@@ -1,4 +1,14 @@
+const { isValid: isValidDate, eachDayOfInterval, parseISO } = require('date-fns');
 const models = require('./../model'); // Import the models object
+
+// Validate date and time formats
+const validateDateTime = (date, time) => {
+  if (!isValidDate(parseISO(date))) {
+    return false;
+  }
+  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/; // HH:mm format
+  return timeRegex.test(time);
+};
 
 // Get all joyride slots, optionally filtered by date
 const getJoyrideSlots = async (req, res) => {
@@ -8,24 +18,70 @@ const getJoyrideSlots = async (req, res) => {
     const slots = await models.Joy_Ride_Slot.findAll({ where });
     res.json(slots);
   } catch (err) {
-    res.status(500).json({ error: 'Database query failed' });
+    res.status(500).json({ error: 'Database query failed: ' + err.message });
   }
 };
 
-// Add a new joyride slot
+// Add new joyride slots for a date range
 const addJoyrideSlot = async (req, res) => {
-  const { date, time, seats, price } = req.body;
-  if (!date || !time || seats < 0 || price < 0) {
-    return res.status(400).json({ error: 'Date, time, seats, and price are required, and seats and price must be non-negative' });
+  const { startDate, endDate, time, seats, price } = req.body;
+
+  // Validate inputs
+  if (!startDate || !endDate || !time || seats < 0 || price < 0) {
+    return res.status(400).json({ error: 'startDate, endDate, time, seats, and price are required, and seats/price must be non-negative' });
   }
+
+  // Validate date and time formats
+  if (!validateDateTime(startDate, time) || !validateDateTime(endDate, time)) {
+    return res.status(400).json({ error: `Invalid startDate (${startDate}), endDate (${endDate}), or time (${time}). Ensure dates are valid (YYYY-MM-DD) and time is in HH:mm format.` });
+  }
+
+  // Ensure startDate is not after endDate
+  const start = parseISO(startDate);
+  const end = parseISO(endDate);
+  if (start > end) {
+    return res.status(400).json({ error: 'startDate must not be after endDate' });
+  }
+
   try {
-    const slot = await models.Joy_Ride_Slot.create({ date, time, seats, price });
+    // Generate all dates in the range (inclusive)
+    const dates = eachDayOfInterval({ start, end }).map(date => date.toISOString().split('T')[0]);
+
+    // Check for existing slots with same date and time
+    const existingSlots = await models.Joy_Ride_Slot.findAll({
+      where: {
+        date: dates,
+        time,
+      },
+    });
+
+    if (existingSlots.length > 0) {
+      const conflictingDates = existingSlots.map(slot => slot.date).join(', ');
+      return res.status(400).json({ error: `Slots already exist for dates: ${conflictingDates} at time ${time}` });
+    }
+
+    // Create slots in a transaction
+    const slots = await models.sequelize.transaction(async (t) => {
+      const createdSlots = await Promise.all(
+        dates.map(date =>
+          models.Joy_Ride_Slot.create(
+            { date, time, seats, price },
+            { transaction: t }
+          )
+        )
+      );
+      return createdSlots;
+    });
+
     res.status(201).json({
-      message: 'Joyride slot added successfully',
-      slot,
+      message: `Successfully created ${slots.length} joyride slots`,
+      slots,
     });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to add joyride slot' });
+    if (err.name === 'SequelizeValidationError') {
+      return res.status(400).json({ error: 'Validation error: ' + err.message });
+    }
+    res.status(500).json({ error: 'Failed to add joyride slots: ' + err.message });
   }
 };
 
@@ -33,8 +89,8 @@ const addJoyrideSlot = async (req, res) => {
 const updateJoyrideSlot = async (req, res) => {
   const slotId = req.params.id;
   const { date, time, seats, price } = req.body;
-  if (!date || !time || seats < 0 || price < 0) {
-    return res.status(400).json({ error: 'Date, time, seats, and price are required, and seats and price must be non-negative' });
+  if (!date || !time || seats < 0 || price < 0 || !validateDateTime(date, time)) {
+    return res.status(400).json({ error: 'Invalid date, time, seats, or price. Ensure date is valid and time is in HH:mm format.' });
   }
   try {
     const slot = await models.Joy_Ride_Slot.findByPk(slotId);
@@ -48,7 +104,10 @@ const updateJoyrideSlot = async (req, res) => {
     await slot.save();
     res.json({ message: 'Joyride slot updated successfully', slot });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to update joyride slot' });
+    if (err.name === 'SequelizeValidationError') {
+      return res.status(400).json({ error: 'Validation error: ' + err.message });
+    }
+    res.status(500).json({ error: 'Failed to update joyride slot: ' + err.message });
   }
 };
 
@@ -63,7 +122,7 @@ const deleteJoyrideSlot = async (req, res) => {
     await slot.destroy();
     res.json({ message: 'Joyride slot deleted successfully' });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to delete joyride slot' });
+    res.status(500).json({ error: 'Failed to delete joyride slot: ' + err.message });
   }
 };
 

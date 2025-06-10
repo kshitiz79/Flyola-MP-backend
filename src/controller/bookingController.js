@@ -55,6 +55,8 @@ function generatePNR() {
 
 
 
+
+
 async function completeBooking(req, res) {
   const { bookedSeat, booking, billing, payment, passengers } = req.body;
 
@@ -68,11 +70,13 @@ async function completeBooking(req, res) {
   if (!bookedSeat.seat_labels || !Array.isArray(bookedSeat.seat_labels) || bookedSeat.seat_labels.length !== passengers.length) {
     return res.status(400).json({ error: 'seat_labels must be an array matching the number of passengers' });
   }
-  for (const f of ['pnr', 'bookingNo', 'contact_no', 'email_id', 'noOfPassengers', 'totalFare', 'bookedUserId', 'schedule_id']) {
+  const bookingRequiredFields = ['pnr', 'bookingNo', 'contact_no', 'email_id', 'noOfPassengers', 'totalFare', 'bookedUserId', 'schedule_id'];
+  for (const f of bookingRequiredFields) {
     if (!booking[f]) return res.status(400).json({ error: `Missing booking field: ${f}` });
   }
   if (!billing.user_id) return res.status(400).json({ error: 'Missing billing field: user_id' });
-  for (const f of ['user_id', 'payment_amount', 'payment_status', 'transaction_id', 'payment_mode']) {
+  const paymentRequiredFields = ['user_id', 'payment_amount', 'payment_status', 'transaction_id', 'payment_mode'];
+  for (const f of paymentRequiredFields) {
     if (!payment[f]) return res.status(400).json({ error: `Missing payment field: ${f}` });
   }
   for (const p of passengers) {
@@ -80,8 +84,8 @@ async function completeBooking(req, res) {
       return res.status(400).json({ error: 'Missing passenger fields: name, title, type, age' });
     }
   }
-  if (!['RAZORPAY', 'ADMIN', 'DUMMY'].includes(payment.payment_mode)) {
-    return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY, ADMIN, or DUMMY' });
+  if (!['RAZORPAY', 'ADMIN'].includes(payment.payment_mode)) {
+    return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY or ADMIN' });
   }
 
   const totalFare = parseFloat(booking.totalFare);
@@ -89,169 +93,153 @@ async function completeBooking(req, res) {
   if (!Number.isFinite(totalFare) || totalFare <= 0) {
     return res.status(400).json({ error: 'Total fare must be a positive number' });
   }
-  if (totalFare !== paymentAmount) {
+  if (Math.abs(totalFare - paymentAmount) > 0.01) { // Allow small float differences
     return res.status(400).json({ error: 'Total fare does not match payment amount' });
   }
 
+  let transaction;
   try {
-    // Validate agentId if provided
-    let agent = null;
-    if (booking.agentId) {
-      agent = await models.Agent.findByPk(booking.agentId);
-      if (!agent) {
-        return res.status(400).json({ error: `Invalid agentId: ${booking.agentId}` });
-      }
-    }
-
-    // Validate bookedUserId exists in the database
+    // Validate user
     const user = await models.User.findByPk(booking.bookedUserId);
     if (!user) {
       return res.status(400).json({ error: `Invalid bookedUserId: ${booking.bookedUserId}` });
     }
 
-    let result;
-    await models.sequelize.transaction(async (t) => {
+    transaction = await models.sequelize.transaction();
+
+    // Authenticate admin for ADMIN mode
+    if (payment.payment_mode === 'ADMIN') {
+      const token = req.headers.authorization?.startsWith('Bearer ') 
+        ? req.headers.authorization.split(' ')[1] 
+        : req.headers.token || req.cookies?.token;
+      
+      if (!token) {
+        throw new Error('Unauthorized: No token provided for admin booking');
+      }
+
       let decoded;
-      if (payment.payment_mode === 'ADMIN' || payment.payment_mode === 'DUMMY') {
-        // Extract token
-        const token =
-          req.cookies?.token ||
-          (req.headers.authorization?.startsWith('Bearer ') &&
-            req.headers.authorization.split(' ')[1]) ||
-          req.headers.token;
-
-        if (!token) {
-          throw new Error('Unauthorized: No token provided for admin/dummy booking');
+      try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded.role !== '1') { // Assuming '1' is admin role
+          throw new Error('Forbidden: Only admins can use ADMIN payment mode');
         }
-
-        try {
-          decoded = jwt.verify(token, process.env.JWT_SECRET);
-          if (decoded.role !== 1) {
-            throw new Error('Forbidden: Only admins can use ADMIN or DUMMY payment mode');
-          }
-        } catch (jwtErr) {
-          throw new Error('Invalid token: ' + jwtErr.message);
+        if (decoded.id !== booking.bookedUserId || decoded.id !== billing.user_id || decoded.id !== payment.user_id) {
+          throw new Error('User ID mismatch in booking, billing, or payment');
         }
-
-        // Ensure user IDs are present
-        if (!booking.bookedUserId || !billing.user_id || !payment.user_id) {
-          throw new Error('Missing user ID in booking, billing, or payment');
-        }
-
-        // Admin or dummy bookings bypass payment verification
-        payment.payment_status = 'SUCCESS';
-        payment.payment_id = `${payment.payment_mode}_${Date.now()}`;
-        payment.order_id = `${payment.payment_mode}_${Date.now()}`;
-        payment.razorpay_signature = null;
-        payment.message = payment.payment_mode === 'ADMIN' ? 'Admin booking (cash payment received)' : 'Dummy booking for testing';
-      } else if (payment.payment_mode === 'RAZORPAY') {
-        if (!payment.payment_id || !payment.order_id || !payment.razorpay_signature) {
-          throw new Error('Missing Razorpay payment fields');
-        }
-        const ok = await verifyPayment({
-          order_id: payment.order_id,
-          payment_id: payment.payment_id,
-          signature: payment.razorpay_signature,
-        });
-        if (!ok) throw new Error('Invalid Razorpay signature');
+      } catch (jwtErr) {
+        throw new Error(`Invalid token: ${jwtErr.message}`);
       }
 
-      const availableSeats = await getAvailableSeats({
-        models,
-        schedule_id: bookedSeat.schedule_id,
-        bookDate: bookedSeat.bookDate,
-        transaction: t,
+      payment.payment_status = 'SUCCESS';
+      payment.payment_id = `ADMIN_${Date.now()}`;
+      payment.order_id = `ADMIN_${Date.now()}`;
+      payment.razorpay_signature = null;
+      payment.message = 'Admin booking (no payment required)';
+    } else if (payment.payment_mode === 'RAZORPAY') {
+      if (!payment.payment_id || !payment.order_id || !payment.razorpay_signature) {
+        throw new Error('Missing Razorpay payment fields: payment_id, order_id, or razorpay_signature');
+      }
+      const isValidSignature = await verifyPayment({
+        order_id: payment.order_id,
+        payment_id: payment.payment_id,
+        signature: payment.razorpay_signature,
       });
-      for (const seat of bookedSeat.seat_labels) {
-        if (!availableSeats.includes(seat)) {
-          throw new Error(`Seat ${seat} is not available`);
-        }
+      if (!isValidSignature) {
+        throw new Error('Invalid Razorpay signature');
       }
+    }
 
-      const newBooking = await models.Booking.create(
+    // Verify seat availability
+    const availableSeats = await getAvailableSeats({
+      models,
+      schedule_id: bookedSeat.schedule_id,
+      bookDate: bookedSeat.bookDate,
+      transaction,
+    });
+    for (const seat of bookedSeat.seat_labels) {
+      if (!availableSeats.includes(seat)) {
+        throw new Error(`Seat ${seat} is not available`);
+      }
+    }
+
+    // Create booking
+    const newBooking = await models.Booking.create(
+      {
+        ...booking,
+        bookingStatus: 'CONFIRMED',
+        paymentStatus: 'SUCCESS',
+        agentId: null, // Website bookings have no agent
+      },
+      { transaction }
+    );
+
+    // Create booked seats
+    for (const seat of bookedSeat.seat_labels) {
+      await models.BookedSeat.create(
         {
-          ...booking,
-          bookingStatus: 'CONFIRMED',
-          paymentStatus: 'SUCCESS',
+          booking_id: newBooking.id,
+          schedule_id: bookedSeat.schedule_id,
+          bookDate: bookedSeat.bookDate,
+          seat_label: seat,
+          booked_seat: 1,
         },
-        { transaction: t }
+        { transaction }
       );
+    }
 
-      for (const seat of bookedSeat.seat_labels) {
-        await models.BookedSeat.create(
-          {
-            booking_id: newBooking.id,
-            schedule_id: bookedSeat.schedule_id,
-            bookDate: bookedSeat.bookDate,
-            seat_label: seat,
-            booked_seat: 1,
-          },
-          { transaction: t }
-        );
-      }
+    // Create billing and payment records
+    await models.Billing.create(
+      { ...billing, user_id: booking.bookedUserId },
+      { transaction }
+    );
+    await models.Payment.create(
+      { ...payment, booking_id: newBooking.id, user_id: booking.bookedUserId },
+      { transaction }
+    );
 
-      await models.Billing.create(
-        { ...billing, user_id: booking.bookedUserId },
-        { transaction: t }
-      );
-      await models.Payment.create(
-        { ...payment, booking_id: newBooking.id, user_id: booking.bookedUserId },
-        { transaction: t }
-      );
-      await models.Passenger.bulkCreate(
-        passengers.map((p) => ({
-          bookingId: newBooking.id,
-          title: p.title,
-          name: p.name,
-          dob: p.dob,
-          age: p.age,
-          type: p.type,
-        })),
-        { transaction: t }
-      );
-
-      if (agent) {
-        await agent.increment('no_of_ticket_booked', {
-          by: booking.noOfPassengers,
-          transaction: t,
-        });
-      }
-
-      // Log payment details
-      if (payment.payment_mode === 'ADMIN') {
-        console.log(`Cash payment booking completed: Booking ID ${newBooking.id}, PNR ${booking.pnr}, Amount ₹${totalFare}, Admin ID ${booking.bookedUserId}`);
-      } else if (payment.payment_mode === 'DUMMY') {
-        console.log(`Dummy payment booking completed: Booking ID ${newBooking.id}, PNR ${booking.pnr}, Amount ₹${totalFare}, Admin ID ${booking.bookedUserId}`);
-      }
-
-      const updatedAvailableSeats = await getAvailableSeats({
-        models,
-        schedule_id: bookedSeat.schedule_id,
-        bookDate: bookedSeat.bookDate,
-        transaction: t,
-      });
-
-      result = {
+    // Create passengers
+    await models.Passenger.bulkCreate(
+      passengers.map((p) => ({
         bookingId: newBooking.id,
-        bookingNo: newBooking.bookingNo,
-        bookingStatus: newBooking.bookingStatus,
-        paymentStatus: newBooking.paymentStatus,
-        availableSeats: updatedAvailableSeats,
-      };
+        title: p.title,
+        name: p.name,
+        dob: p.dob || null,
+        age: p.age,
+        type: p.type,
+      })),
+      { transaction }
+    );
+
+    // Update available seats
+    const updatedAvailableSeats = await getAvailableSeats({
+      models,
+      schedule_id: bookedSeat.schedule_id,
+      bookDate: bookedSeat.bookDate,
+      transaction,
     });
 
+    await transaction.commit();
+
+    // Emit seats-updated event
     if (req.io) {
       req.io.emit('seats-updated', {
         schedule_id: bookedSeat.schedule_id,
         bookDate: bookedSeat.bookDate,
-        availableSeats: result.availableSeats,
+        availableSeats: updatedAvailableSeats,
       });
     }
 
-    return res.status(201).json(result);
+    return res.status(201).json({
+      bookingId: newBooking.id,
+      bookingNo: newBooking.bookingNo,
+      bookingStatus: newBooking.bookingStatus,
+      paymentStatus: newBooking.paymentStatus,
+      availableSeats: updatedAvailableSeats,
+    });
   } catch (err) {
-    console.error('completeBooking error:', err);
-    return res.status(400).json({ error: err.message });
+    if (transaction) await transaction.rollback();
+    console.error('[completeBooking] Error:', err);
+    return res.status(400).json({ error: `Failed to complete booking: ${err.message}` });
   }
 }
 
@@ -402,6 +390,9 @@ async function bookSeatsWithoutPayment(req, res) {
         });
     }
 }
+
+
+
 async function getIrctcBookings(req, res) {
     console.log('Reached getIrctcBookings endpoint');
     try {

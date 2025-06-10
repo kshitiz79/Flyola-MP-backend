@@ -33,6 +33,7 @@ models.Booking.belongsTo(models.User, { foreignKey: 'bookedUserId' });
 models.Booking.hasMany(models.Payment, { foreignKey: 'booking_id' });
 models.Booking.hasMany(models.Passenger, { foreignKey: 'bookingId' });
 models.Payment.belongsTo(models.Booking, { foreignKey: 'booking_id' });
+
 models.Payment.belongsTo(models.User, { foreignKey: 'user_id' });
 models.Billing.belongsTo(models.User, { foreignKey: 'user_id' });
 models.Flight.hasMany(models.FlightSchedule, { foreignKey: 'flight_id' });

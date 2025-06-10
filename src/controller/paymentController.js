@@ -13,47 +13,48 @@ const createPaymentUtil = async (paymentData, transaction) => {
 };
 
 
+
+
 const createOrder = async (req, res) => {
   const { amount, payment_mode = 'RAZORPAY' } = req.body;
+
+  // Validate amount
   if (amount == null) {
-    return res.status(400).json({ error: "Missing required field: amount" });
+    return res.status(400).json({ error: 'Missing required field: amount' });
   }
   const numericAmount = Number(amount);
   if (isNaN(numericAmount) || numericAmount <= 0) {
-    return res.status(400).json({ error: "Invalid amount. Must be a positive number." });
+    return res.status(400).json({ error: 'Invalid amount. Must be a positive number.' });
   }
 
   try {
     let order;
-    try {
-      if (payment_mode === 'RAZORPAY_QR') {
-        order = await razorpay.qr_codes.create({
-          type: 'upi_qr',
-          name: 'Flyola Aviation QR Payment',
-          usage: 'single_use',
-          fixed_amount: true,
-          amount: numericAmount * 100, 
-          currency: 'INR',
-          description: 'Flight booking payment via QR code',
-        });
-      } else {
-        order = await razorpay.orders.create({
-          amount: numericAmount * 100,
-          currency: 'INR',
-          receipt: `receipt_${Date.now()}`,
-        });
-      }
-    } catch (sdkErr) {
-      return res.status(502).json({ error: sdkErr.message || "Razorpay order creation failed" });
+    if (payment_mode === 'RAZORPAY_QR') {
+      order = await razorpay.qr_codes.create({
+        type: 'upi_qr',
+        name: 'Flyola Aviation QR Payment',
+        usage: 'single_use',
+        fixed_amount: true,
+        amount: Math.round(numericAmount * 100), // Ensure integer paise
+        currency: 'INR',
+        description: 'Flight booking payment via QR code',
+      });
+    } else {
+      order = await razorpay.orders.create({
+        amount: Math.round(numericAmount * 100), // Convert to paise
+        currency: 'INR',
+        receipt: `receipt_${Date.now()}`,
+      });
     }
 
-    return res.json({
+    return res.status(201).json({
       order_id: order.id,
       payment_mode,
       ...(payment_mode === 'RAZORPAY_QR' && { qr_code: order.qr_code }),
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message || "Internal server error" });
+    console.error('[createOrder] Error:', err);
+    return res.status(500).json({ error: `Failed to create order: ${err.message}` });
   }
 };
 
