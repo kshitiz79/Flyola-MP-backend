@@ -20,6 +20,7 @@ function getRouteAirports({ start_airport_id, end_airport_id, airport_stop_ids }
     if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
     cleaned.push(id);
     seen.add(id);
+    
   }
 
   return [start_airport_id, ...cleaned, end_airport_id];

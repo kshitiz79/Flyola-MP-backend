@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const sequelize = require('../../db2'); // Updated to ../../db
+const sequelize = require('../../db2');
 
 const Airport = sequelize.define('Airport', {
   id: {
@@ -18,6 +18,14 @@ const Airport = sequelize.define('Airport', {
   airport_name: {
     type: DataTypes.STRING(100),
     allowNull: true,
+  },
+  status: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 1, // Default to active
+    validate: {
+      isIn: [[0, 1]], // Restrict to 0 (inactive) or 1 (active)
+    },
   },
   created_at: {
     type: DataTypes.DATE,
