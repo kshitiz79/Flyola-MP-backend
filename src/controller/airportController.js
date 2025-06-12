@@ -106,6 +106,13 @@ const deleteAllAirports = async (req, res) => {
   }
 };
 
+
+
+
+
+
+
+
 module.exports = {
   getAirports,
   addAirport,

@@ -11,58 +11,54 @@ const { Op } = require('sequelize');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 
-
 dayjs.extend(utc);
-dayjs.extend(timezone)
-
-
+dayjs.extend(timezone);
 
 function generatePNR() {
-    const maxAttempts = 10;
-    let attempt = 0;
+  const maxAttempts = 10;
+  let attempt = 0;
 
-    async function tryGenerate() {
-        while (attempt < maxAttempts) {
-            try {
-                let pnr = crypto.randomBytes(6).toString('base64').replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
-                if (pnr.length === 6) {
-                    const existing = await models.Booking.findOne({ where: { pnr } });
-                    if (!existing) return pnr;
-                }
-            } catch (cryptoError) {
-                console.warn('Crypto module issue, using UUID fallback for PNR:', cryptoError.message);
-                let pnr = uuidv4().replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
-                if (pnr.length === 6) {
-                    const existing = await models.Booking.findOne({ where: { pnr } });
-                    if (!existing) return pnr;
-                }
-            }
-            attempt++;
+  async function tryGenerate() {
+    while (attempt < maxAttempts) {
+      try {
+        let pnr = crypto.randomBytes(6).toString('base64').replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
+        if (pnr.length === 6) {
+          const existing = await models.Booking.findOne({ where: { pnr } });
+          if (!existing) return pnr;
         }
-
+      } catch (cryptoError) {
+        console.warn('Crypto module issue, using UUID fallback for PNR:', cryptoError.message);
         let pnr = uuidv4().replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
-        if (pnr.length < 6) {
-            pnr = pnr.padEnd(6, 'X');
+        if (pnr.length === 6) {
+          const existing = await models.Booking.findOne({ where: { pnr } });
+          if (!existing) return pnr;
         }
-        const existing = await models.Booking.findOne({ where: { pnr } });
-        if (!existing) return pnr;
-
-        throw new Error('Failed to generate unique PNR after multiple attempts');
+      }
+      attempt++;
     }
 
-    return tryGenerate();
+    let pnr = uuidv4().replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
+    if (pnr.length < 6) {
+      pnr = pnr.padEnd(6, 'X');
+    }
+    const existing = await models.Booking.findOne({ where: { pnr } });
+    if (!existing) return pnr;
+
+    throw new Error('Failed to generate unique PNR after multiple attempts');
+  }
+
+  return tryGenerate();
 }
-
-
-
-
 
 async function completeBooking(req, res) {
   const { bookedSeat, booking, billing, payment, passengers } = req.body;
 
+  // Log incoming payload for debugging
+  console.log('[completeBooking] Received payload:', JSON.stringify(req.body, null, 2));
+
   // Input validation
   if (!bookedSeat || !booking || !billing || !payment || !Array.isArray(passengers) || !passengers.length) {
-    return res.status(400).json({ error: 'Missing required booking sections' });
+    return res.status(400).json({ error: 'Missing required booking sections: bookedSeat, booking, billing, payment, or passengers' });
   }
   if (!dayjs(bookedSeat.bookDate, 'YYYY-MM-DD', true).isValid()) {
     return res.status(400).json({ error: 'Invalid bookDate format (YYYY-MM-DD)' });
@@ -70,14 +66,22 @@ async function completeBooking(req, res) {
   if (!bookedSeat.seat_labels || !Array.isArray(bookedSeat.seat_labels) || bookedSeat.seat_labels.length !== passengers.length) {
     return res.status(400).json({ error: 'seat_labels must be an array matching the number of passengers' });
   }
-  const bookingRequiredFields = ['pnr', 'bookingNo', 'contact_no', 'email_id', 'noOfPassengers', 'totalFare', 'bookedUserId', 'schedule_id'];
-  for (const f of bookingRequiredFields) {
-    if (!booking[f]) return res.status(400).json({ error: `Missing booking field: ${f}` });
+
+  // Validate booking fields
+  const bookingRequiredFields = ['pnr', 'bookingNo', 'contact_no', 'email_id', 'noOfPassengers', 'bookDate', 'totalFare', 'bookedUserId', 'schedule_id'];
+  const missingBookingFields = bookingRequiredFields.filter(f => !booking[f] && booking[f] !== 0);
+  if (missingBookingFields.length) {
+    return res.status(400).json({ error: `Missing booking fields: ${missingBookingFields.join(', ')}` });
   }
-  if (!billing.user_id) return res.status(400).json({ error: 'Missing billing field: user_id' });
+
+  // Validate other sections
+  if (!billing.user_id) {
+    return res.status(400).json({ error: 'Missing billing field: user_id' });
+  }
   const paymentRequiredFields = ['user_id', 'payment_amount', 'payment_status', 'transaction_id', 'payment_mode'];
-  for (const f of paymentRequiredFields) {
-    if (!payment[f]) return res.status(400).json({ error: `Missing payment field: ${f}` });
+  const missingPaymentFields = paymentRequiredFields.filter(f => !payment[f] && payment[f] !== 0);
+  if (missingPaymentFields.length) {
+    return res.status(400).json({ error: `Missing payment fields: ${missingPaymentFields.join(', ')}` });
   }
   for (const p of passengers) {
     if (!p.name || !p.title || !p.type || typeof p.age !== 'number') {
@@ -93,7 +97,7 @@ async function completeBooking(req, res) {
   if (!Number.isFinite(totalFare) || totalFare <= 0) {
     return res.status(400).json({ error: 'Total fare must be a positive number' });
   }
-  if (Math.abs(totalFare - paymentAmount) > 0.01) { // Allow small float differences
+  if (Math.abs(totalFare - paymentAmount) > 0.01) {
     return res.status(400).json({ error: 'Total fare does not match payment amount' });
   }
 
@@ -109,10 +113,10 @@ async function completeBooking(req, res) {
 
     // Authenticate admin for ADMIN mode
     if (payment.payment_mode === 'ADMIN') {
-      const token = req.headers.authorization?.startsWith('Bearer ') 
-        ? req.headers.authorization.split(' ')[1] 
+      const token = req.headers.authorization?.startsWith('Bearer ')
+        ? req.headers.authorization.split(' ')[1]
         : req.headers.token || req.cookies?.token;
-      
+
       if (!token) {
         throw new Error('Unauthorized: No token provided for admin booking');
       }
@@ -120,10 +124,16 @@ async function completeBooking(req, res) {
       let decoded;
       try {
         decoded = jwt.verify(token, process.env.JWT_SECRET);
-        if (decoded.role !== '1') { // Assuming '1' is admin role
+        console.log('[completeBooking] Decoded token:', decoded);
+        if (String(decoded.role) !== '1') {
+          console.log('[completeBooking] Role mismatch: expected 1, got', decoded.role);
           throw new Error('Forbidden: Only admins can use ADMIN payment mode');
         }
-        if (decoded.id !== booking.bookedUserId || decoded.id !== billing.user_id || decoded.id !== payment.user_id) {
+        if (
+          String(decoded.id) !== String(booking.bookedUserId) ||
+          String(decoded.id) !== String(billing.user_id) ||
+          String(decoded.id) !== String(payment.user_id)
+        ) {
           throw new Error('User ID mismatch in booking, billing, or payment');
         }
       } catch (jwtErr) {
@@ -168,7 +178,7 @@ async function completeBooking(req, res) {
         ...booking,
         bookingStatus: 'CONFIRMED',
         paymentStatus: 'SUCCESS',
-        agentId: null, // Website bookings have no agent
+        agentId: null,
       },
       { transaction }
     );
@@ -188,14 +198,8 @@ async function completeBooking(req, res) {
     }
 
     // Create billing and payment records
-    await models.Billing.create(
-      { ...billing, user_id: booking.bookedUserId },
-      { transaction }
-    );
-    await models.Payment.create(
-      { ...payment, booking_id: newBooking.id, user_id: booking.bookedUserId },
-      { transaction }
-    );
+    await models.Billing.create({ ...billing, user_id: booking.bookedUserId }, { transaction });
+    await models.Payment.create({ ...payment, booking_id: newBooking.id, user_id: booking.bookedUserId }, { transaction });
 
     // Create passengers
     await models.Passenger.bulkCreate(
@@ -240,6 +244,16 @@ async function completeBooking(req, res) {
     if (transaction) await transaction.rollback();
     console.error('[completeBooking] Error:', err);
     return res.status(400).json({ error: `Failed to complete booking: ${err.message}` });
+  }
+}
+
+async function generatePNRController(req, res) {
+  try {
+    const pnr = await generatePNR();
+    res.json({ pnr });
+  } catch (err) {
+    console.error("[generatePNR] error:", err);
+    res.status(500).json({ error: "Failed to generate PNR" });
   }
 }
 
@@ -493,15 +507,6 @@ async function getUserBookings(req, res) {
     }
 }
 
-async function generatePNRController(req, res) {
-    try {
-        const pnr = await generatePNR();
-        res.json({ pnr });
-    } catch (err) {
-        console.error("generatePNR error:", err);
-        res.status(500).json({ error: "Failed to generate PNR" });
-    }
-}
 
 async function getBookings(req, res) {
     try {
