@@ -338,6 +338,93 @@ router.get('/verify', authenticate(), (req, res) => {
   });
 });
 
+
+
+
+
+
+
+// src/routes/users.js
+
+// Booking Agent Registration Route
+router.post('/register-booking-agent', async (req, res) => {
+  const models = getModels();
+  const { name, email, password, number } = req.body;
+  
+  // Check if required fields are provided
+  if (!name || !email || !password || !number) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
+
+  try {
+    // Check if the email already exists
+    const exists = await models.User.findOne({ where: { email } });
+    if (exists) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    // Hash the password before saving it
+    const hashed = await bcrypt.hash(password, 12);
+
+    // Create a new user with role set to '2' for booking agent
+    const newUser = await models.User.create({
+      name,
+      email,
+      password: hashed,
+      number,
+      role: 2  // Set the role to booking agent
+    });
+
+    // Prepare the JWT token payload
+    const payload = { id: newUser.id, email, role: 2, remember_token: null };
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    // Respond with the token and user information
+    res.cookie('token', token, buildCookieOptions());
+    return res.status(201).json({
+      message: 'Booking agent registered successfully',
+      user: { id: newUser.id, email, role: 2 },
+      token  // Include the token in the response for frontend use
+    });
+  } catch (err) {
+    console.error('[Register Booking Agent Error]', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.get('/', authenticate(), async (req, res) => {
+  const models = getModels();
+
+  try {
+    const users = await models.User.findAll({
+      attributes: ['id', 'email', 'role'], // Limit fields
+    });
+    return res.json(users);
+  } catch (err) {
+    console.error('[Fetch Users Error]', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Remove or Fix Broken /:id Endpoint
+router.get('/:id', authenticate(), async (req, res) => {
+  const models = getModels();
+
+  try {
+    const user = await models.User.findByPk(req.params.id, {
+      attributes: ['id', 'email', 'role'],
+    });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (err) {
+    console.error('Error fetching user:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
 module.exports = router;
 
 
@@ -500,3 +587,4 @@ router.post('/profile', authenticate(), async (req, res) => {
     return res.status(500).json({ error: 'Server error' });
   }
 });
+

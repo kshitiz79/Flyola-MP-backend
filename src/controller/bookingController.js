@@ -88,8 +88,8 @@ async function completeBooking(req, res) {
       return res.status(400).json({ error: 'Missing passenger fields: name, title, type, age' });
     }
   }
-  if (!['RAZORPAY', 'ADMIN'].includes(payment.payment_mode)) {
-    return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY or ADMIN' });
+  if (!['RAZORPAY', 'ADMIN', 'AGENT'].includes(payment.payment_mode)) {
+    return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY, ADMIN, or AGENT' });
   }
 
   const totalFare = parseFloat(booking.totalFare);
@@ -157,6 +157,21 @@ async function completeBooking(req, res) {
       if (!isValidSignature) {
         throw new Error('Invalid Razorpay signature');
       }
+    } else if (payment.payment_mode === 'AGENT') {
+      // Allow agent to book for users with payment via 'AGENT'
+      const agent = await models.User.findByPk(payment.user_id);
+      if (!agent || agent.role !== 2) {
+        throw new Error('Invalid agent ID for agent booking');
+      }
+
+      // Store the agentId in the booking
+      booking.agentId = payment.user_id;
+
+      payment.payment_status = 'SUCCESS';
+      payment.payment_id = `AGENT_${Date.now()}`;
+      payment.order_id = `AGENT_${Date.now()}`;
+      payment.razorpay_signature = null;
+      payment.message = 'Agent booking (no payment required)';
     }
 
     // Verify seat availability
@@ -172,13 +187,13 @@ async function completeBooking(req, res) {
       }
     }
 
-    // Create booking
+    // Create booking with agentId
     const newBooking = await models.Booking.create(
       {
         ...booking,
         bookingStatus: 'CONFIRMED',
         paymentStatus: 'SUCCESS',
-        agentId: null,
+        agentId: booking.agentId, // Link the agent who made the booking
       },
       { transaction }
     );
@@ -246,6 +261,7 @@ async function completeBooking(req, res) {
     return res.status(400).json({ error: `Failed to complete booking: ${err.message}` });
   }
 }
+
 
 async function generatePNRController(req, res) {
   try {
@@ -408,6 +424,8 @@ async function bookSeatsWithoutPayment(req, res) {
 
 
 async function getIrctcBookings(req, res) {
+
+    
     console.log('Reached getIrctcBookings endpoint');
     try {
         // Check authorization
