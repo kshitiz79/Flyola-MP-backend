@@ -273,16 +273,23 @@ async function generatePNRController(req, res) {
   }
 }
 
+
+
+
+
+
 async function bookSeatsWithoutPayment(req, res) {
     const { bookedSeat, booking, passengers } = req.body;
 
+    // Validate required sections
     if (!bookedSeat || !booking || !Array.isArray(passengers) || passengers.length === 0) {
         return res.status(400).json({ success: false, error: 'Missing required booking sections' });
     }
-    if (!bookedSeat.seat_labels || !Array.isArray(bookedSeat.seat_labels) || bookedSeat.seat_labels.length !== passengers.length) {
-        return res.status(400).json({ success: false, error: 'seat_labels must be an array matching the number of passengers' });
+    if (!bookedSeat.seat_labels || !Array.isArray(bookedSeat.seat_labels)) {
+        return res.status(400).json({ success: false, error: 'seat_labels must be a non-empty array' });
     }
 
+    // Validate booking fields
     const bookingRequiredFields = ['contact_no', 'email_id', 'noOfPassengers', 'totalFare', 'bookedUserId', 'schedule_id', 'bookDate', 'agentId'];
     for (const f of bookingRequiredFields) {
         if (!booking[f]) {
@@ -290,19 +297,62 @@ async function bookSeatsWithoutPayment(req, res) {
         }
     }
 
+    // Validate noOfPassengers matches passengers array
+    if (booking.noOfPassengers !== passengers.length) {
+        return res.status(400).json({ success: false, error: 'noOfPassengers must match the number of passengers' });
+    }
+
+    // Validate schedule_id exists
+    const schedule = await models.FlightSchedule.findByPk(booking.schedule_id);
+    if (!schedule) {
+        return res.status(400).json({ success: false, error: `Invalid schedule_id: ${booking.schedule_id} does not exist in flight_schedules` });
+    }
+
+    // Validate passengers
+    const nonInfantPassengers = passengers.filter(p => p.type !== 'Infant');
     for (const p of passengers) {
         if (!p.name || !p.title || !p.type || typeof p.age !== 'number') {
             return res.status(400).json({ success: false, error: 'Missing passenger fields: name, title, type, age' });
         }
+        if (!['Adult', 'Child', 'Infant'].includes(p.type)) {
+            return res.status(400).json({ success: false, error: 'Invalid passenger type: must be Adult, Child, or Infant' });
+        }
+        // Enforce age limits
+        if (p.type === 'Infant' && (p.age < 0 || p.age > 2)) {
+            return res.status(400).json({ success: false, error: 'Infant age must be between 0 and 2 years' });
+        }
+        if (p.type === 'Child' && (p.age <= 2 || p.age > 12)) {
+            return res.status(400).json({ success: false, error: 'Child age must be between 2 and 12 years' });
+        }
+        if (p.type === 'Adult' && p.age <= 12) {
+            return res.status(400).json({ success: false, error: 'Adult age must be greater than 12 years' });
+        }
     }
 
-    if (!dayjs(bookedSeat.bookDate, 'YYYY-MM-DD', true).isValid()) {
+    // Validate seat_labels length matches non-infant passengers
+    if (bookedSeat.seat_labels.length !== nonInfantPassengers.length) {
+        return res.status(400).json({
+            success: false,
+            error: `seat_labels must be an array matching the number of non-infant passengers (${nonInfantPassengers.length})`
+        });
+    }
+
+    // Validate bookDate
+    if (!dayjs(booking.bookDate, 'YYYY-MM-DD', true).isValid()) {
         return res.status(400).json({ success: false, error: 'Invalid bookDate format (YYYY-MM-DD)' });
     }
 
+    // Validate totalFare: Full fare for Adults and Children, $0 for Infants
+    const fullFare = 100; // $100 for Adult or Child
+    const infantFare = 0; // $0 for Infant
+    const expectedFare = nonInfantPassengers.length * fullFare;
+
     const totalFare = parseFloat(booking.totalFare);
-    if (!Number.isFinite(totalFare) || totalFare <= 0) {
-        return res.status(400).json({ success: false, error: 'Total fare must be a positive number' });
+    if (!Number.isFinite(totalFare) || totalFare < 0 || totalFare !== expectedFare) {
+        return res.status(400).json({
+            success: false,
+            error: `Invalid totalFare: expected ${expectedFare} for ${nonInfantPassengers.length} non-infant passengers (Adult/Child: $${fullFare}, Infant: $${infantFare})`
+        });
     }
 
     try {
@@ -315,12 +365,12 @@ async function bookSeatsWithoutPayment(req, res) {
         }
 
         let result;
-        await models.sequelize.transaction(async(t) => {
+        await models.sequelize.transaction(async (t) => {
             const availableSeats = await getAvailableSeats({
                 models,
                 schedule_id: bookedSeat.schedule_id,
                 bookDate: bookedSeat.bookDate,
-                userId: booking.bookedUserId, // Use bookedUserId as held_by
+                userId: booking.bookedUserId,
                 transaction: t,
             });
             if (!availableSeats) {
@@ -342,6 +392,7 @@ async function bookSeatsWithoutPayment(req, res) {
                 bookingStatus: 'SUCCESS',
             }, { transaction: t });
 
+            // Assign seats only to non-infant passengers
             for (const seat of bookedSeat.seat_labels) {
                 await models.BookedSeat.create({
                     booking_id: newBooking.id,
@@ -357,7 +408,7 @@ async function bookSeatsWithoutPayment(req, res) {
                     schedule_id: bookedSeat.schedule_id,
                     bookDate: bookedSeat.bookDate,
                     seat_label: bookedSeat.seat_labels,
-                    held_by: booking.bookedUserId, // Match with held_by
+                    held_by: booking.bookedUserId,
                 },
                 transaction: t,
             });
@@ -420,6 +471,10 @@ async function bookSeatsWithoutPayment(req, res) {
         });
     }
 }
+
+
+
+
 
 
 
