@@ -342,16 +342,25 @@ async function bookSeatsWithoutPayment(req, res) {
         return res.status(400).json({ success: false, error: 'Invalid bookDate format (YYYY-MM-DD)' });
     }
 
-    // Validate totalFare: Full fare for Adults and Children, $0 for Infants
-    const fullFare = Number(schedule.base_price || 0); 
-    const infantFare = 0; // $0 for Infant
-    const expectedFare = nonInfantPassengers.length * fullFare;
+
+    const adultFare = Number(schedule.price || 0);
+    const childFare = adultFare;
+    const infantFare = 0;
+
+    let expectedFare = 0;
+
+
+    for (const p of passengers) {
+        if (p.type === 'Adult') expectedFare += adultFare;
+        else if (p.type === 'Child') expectedFare += childFare;
+       
+      }
 
     const totalFare = parseFloat(booking.totalFare);
     if (!Number.isFinite(totalFare) || totalFare < 0 || totalFare !== expectedFare) {
         return res.status(400).json({
             success: false,
-            error: `Invalid totalFare: expected ${expectedFare} for ${nonInfantPassengers.length} non-infant passengers (Adult/Child: $${fullFare}, Infant: $${infantFare})`
+            error: `Invalid totalFare: expected ₹${expectedFare} (Adult: ₹${adultFare}, Child: ₹${childFare}, Infant: ₹${infantFare})`
         });
     }
 
