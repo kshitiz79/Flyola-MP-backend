@@ -343,7 +343,7 @@ async function bookSeatsWithoutPayment(req, res) {
     }
 
     // Validate totalFare: Full fare for Adults and Children, $0 for Infants
-    const fullFare = 100; // $100 for Adult or Child
+    const fullFare = Number(schedule.base_price || 0); 
     const infantFare = 0; // $0 for Infant
     const expectedFare = nonInfantPassengers.length * fullFare;
 
