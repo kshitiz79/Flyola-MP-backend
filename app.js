@@ -47,7 +47,7 @@ app.use('/reviews', require('./src/routes/reviews'));
 app.use('/billings', require('./src/routes/billings'));
 app.use('/payments', require('./src/routes/payments'));
 app.use('/agents', require('./src/routes/agent'));
-app.use('/bookings', require('./src/routes/bookings')); // Ensure io is accessible here
+app.use('/bookings', require('./src/routes/bookings')); 
 app.use('/passenger', require('./src/routes/passengerRoutes'));
 app.use('/flights', require('./src/routes/flightRoutes'));
 app.use('/api/joyride-slots', require('./src/routes/joyRide'));
