@@ -89,40 +89,114 @@ const addJoyrideSlot = async (req, res) => {
 const updateJoyrideSlot = async (req, res) => {
   const slotId = req.params.id;
   const { date, time, seats, price } = req.body;
+  console.log('[UPDATE Joy Ride Slot] Request for slot ID:', slotId, 'with data:', { date, time, seats, price }, 'by user:', req.user);
+  
+  // Validate slot ID
+  if (!slotId || isNaN(slotId)) {
+    console.log('[UPDATE Joy Ride Slot] Invalid slot ID:', slotId);
+    return res.status(400).json({ error: 'Invalid slot ID provided' });
+  }
+  
+  // Validate input data
   if (!date || !time || seats < 0 || price < 0 || !validateDateTime(date, time)) {
+    console.log('[UPDATE Joy Ride Slot] Invalid input data:', { date, time, seats, price });
     return res.status(400).json({ error: 'Invalid date, time, seats, or price. Ensure date is valid and time is in HH:mm format.' });
   }
+  
   try {
+    console.log('[UPDATE Joy Ride Slot] Looking for slot with ID:', slotId);
     const slot = await models.Joy_Ride_Slot.findByPk(slotId);
+    
     if (!slot) {
-      return res.status(404).json({ message: 'Joyride slot not found' });
+      console.log('[UPDATE Joy Ride Slot] Slot not found with ID:', slotId);
+      return res.status(404).json({ error: 'Joyride slot not found' });
     }
+    
+    console.log('[UPDATE Joy Ride Slot] Found slot:', slot.toJSON());
+    
+    // Check for conflicts with other slots (excluding current slot)
+    const conflictingSlot = await models.Joy_Ride_Slot.findOne({
+      where: {
+        date,
+        time,
+        id: { [models.Sequelize.Op.ne]: slotId } // Exclude current slot
+      }
+    });
+    
+    if (conflictingSlot) {
+      console.log('[UPDATE Joy Ride Slot] Conflicting slot found:', conflictingSlot.id);
+      return res.status(400).json({ 
+        error: `A slot already exists for ${date} at ${time}. Please choose a different date or time.` 
+      });
+    }
+    
+    // Update slot
     slot.date = date;
     slot.time = time;
     slot.seats = seats;
     slot.price = price;
     await slot.save();
+    
+    console.log('[UPDATE Joy Ride Slot] Successfully updated slot:', slotId);
     res.json({ message: 'Joyride slot updated successfully', slot });
   } catch (err) {
+    console.error('[UPDATE Joy Ride Slot] Error:', err.message);
+    console.error('[UPDATE Joy Ride Slot] Stack:', err.stack);
+    
     if (err.name === 'SequelizeValidationError') {
       return res.status(400).json({ error: 'Validation error: ' + err.message });
     }
-    res.status(500).json({ error: 'Failed to update joyride slot: ' + err.message });
+    res.status(500).json({ 
+      error: 'Failed to update joyride slot: ' + err.message,
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 };
 
 // Delete a joyride slot
 const deleteJoyrideSlot = async (req, res) => {
   const slotId = req.params.id;
+  console.log('[DELETE Joy Ride Slot] Request for slot ID:', slotId, 'by user:', req.user);
+  
+  // Validate slot ID
+  if (!slotId || isNaN(slotId)) {
+    console.log('[DELETE Joy Ride Slot] Invalid slot ID:', slotId);
+    return res.status(400).json({ error: 'Invalid slot ID provided' });
+  }
+  
   try {
+    console.log('[DELETE Joy Ride Slot] Looking for slot with ID:', slotId);
     const slot = await models.Joy_Ride_Slot.findByPk(slotId);
+    
     if (!slot) {
-      return res.status(404).json({ message: 'Joyride slot not found' });
+      console.log('[DELETE Joy Ride Slot] Slot not found with ID:', slotId);
+      return res.status(404).json({ error: 'Joyride slot not found' });
     }
+    
+    console.log('[DELETE Joy Ride Slot] Found slot:', slot.toJSON());
+    
+    // Check if slot has any bookings
+    const bookingCount = await models.JoyRideBooking.count({
+      where: { slot_id: slotId }
+    });
+    
+    if (bookingCount > 0) {
+      console.log('[DELETE Joy Ride Slot] Cannot delete slot with bookings:', bookingCount);
+      return res.status(400).json({ 
+        error: `Cannot delete slot with ${bookingCount} existing booking(s). Cancel bookings first.` 
+      });
+    }
+    
     await slot.destroy();
-    res.json({ message: 'Joyride slot deleted successfully' });
+    console.log('[DELETE Joy Ride Slot] Successfully deleted slot:', slotId);
+    res.json({ message: 'Joyride slot deleted successfully', deletedSlot: slot });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to delete joyride slot: ' + err.message });
+    console.error('[DELETE Joy Ride Slot] Error:', err.message);
+    console.error('[DELETE Joy Ride Slot] Stack:', err.stack);
+    res.status(500).json({ 
+      error: 'Failed to delete joyride slot: ' + err.message,
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 };
 

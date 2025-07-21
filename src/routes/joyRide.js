@@ -18,7 +18,7 @@ router.get('/payments', authenticate([1]), joyridePaymentController.getJoyridePa
 router.get('/payments/:id', authenticate([1]), joyridePaymentController.getJoyridePaymentById);
 
 // Admin-only routes (role 1)
-router.post('/',  joyrideSlotController.addJoyrideSlot);
+router.post('/', authenticate([1]), joyrideSlotController.addJoyrideSlot);
 router.put('/:id', authenticate([1]), joyrideSlotController.updateJoyrideSlot);
 router.delete('/:id', authenticate([1]), joyrideSlotController.deleteJoyrideSlot);
 

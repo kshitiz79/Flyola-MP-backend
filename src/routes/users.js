@@ -3,7 +3,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
-const getModels = () => require('../model');
+const models = require('../model');
 require('dotenv').config();
 const { authenticate } = require('../middleware/auth');
 
@@ -13,13 +13,37 @@ const { buildCookieOptions } = require('../utils/cookie');
 
 const router = express.Router();
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'kshitizmaurya6@gmail.com',
-    pass: 'augs snhv vjmw njfg',
-  },
-});
+// Email configuration with better error handling
+const createTransporter = () => {
+  try {
+    // Check if email credentials are available
+    const emailUser = process.env.EMAIL_USER;
+    const emailPass = process.env.EMAIL_PASS;
+    
+    if (!emailUser || !emailPass) {
+      console.warn('[Email Config] Missing email credentials in environment variables');
+      return null;
+    }
+
+    return nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: emailUser,
+        pass: emailPass,
+      },
+      tls: {
+        rejectUnauthorized: false
+      },
+      // Add timeout settings
+      connectionTimeout: 10000,
+      greetingTimeout: 5000,
+      socketTimeout: 10000,
+    });
+  } catch (error) {
+    console.error('[Email Transporter Error]', error);
+    return null;
+  }
+};
 
 // Generate 6-digit OTP
 const generateOtp = () => {
@@ -28,18 +52,24 @@ const generateOtp = () => {
 
 
 router.post('/login', async (req, res) => {
-  const models = getModels();
   const { email, password } = req.body;
   console.log('[Login] Request:', { email });
+
+  // Validate input
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
 
   try {
     const user = await models.User.findOne({ where: { email } });
     if (!user) {
+      console.log('[Login] User not found:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
+      console.log('[Login] Password mismatch for:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -49,12 +79,18 @@ router.post('/login', async (req, res) => {
       role: Number(user.role),
       remember_token: user.remember_token || null
     };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' }); // Extended token life
 
+    console.log('[Login] Success for:', email);
     return res.json({
       message: 'Login successful',
       token,
-      user: { id: user.id, email: user.email, role: Number(user.role) }
+      user: { 
+        id: user.id, 
+        email: user.email, 
+        name: user.name,
+        role: Number(user.role) 
+      }
     });
   } catch (err) {
     console.error('[Login Error]', err);
@@ -64,7 +100,11 @@ router.post('/login', async (req, res) => {
 
 router.post('/forgot-password', async (req, res) => {
   const { email } = req.body;
-  const models = getModels();
+
+  // Validate email format
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Valid email is required' });
+  }
 
   try {
     const user = await models.User.findOne({ where: { email } });
@@ -74,17 +114,54 @@ router.post('/forgot-password', async (req, res) => {
 
     const otp = generateOtp();
     user.remember_token = otp;
+    user.otp_expires_at = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
     await user.save();
 
-    const mailOptions = {
-      from: 'flyola@gmail.com',
-      to: email,
-      subject: 'Password Reset OTP',
-      text: `Your OTP for password reset is: ${otp}. It is valid for 10 minutes.`,
-    };
+    // Try to send email, but don't fail if email service is down
+    try {
+      const transporter = createTransporter();
+      if (transporter) {
+        const mailOptions = {
+          from: process.env.EMAIL_USER,
+          to: email,
+          subject: 'Flyola - Password Reset OTP',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #4F46E5;">Password Reset Request</h2>
+              <p>Hello,</p>
+              <p>You have requested to reset your password for your Flyola account.</p>
+              <p>Your OTP for password reset is:</p>
+              <div style="background-color: #F3F4F6; padding: 20px; text-align: center; margin: 20px 0;">
+                <h1 style="color: #4F46E5; font-size: 32px; margin: 0;">${otp}</h1>
+              </div>
+              <p>This OTP is valid for 10 minutes only.</p>
+              <p>If you didn't request this password reset, please ignore this email.</p>
+              <p>Best regards,<br>Flyola Team</p>
+            </div>
+          `,
+        };
 
-    await transporter.sendMail(mailOptions);
-    return res.json({ message: 'OTP sent to your email' });
+        await transporter.sendMail(mailOptions);
+        console.log('[Email] OTP sent successfully to:', email);
+        return res.json({ message: 'OTP sent to your email' });
+      } else {
+        // If email service fails, still return success but log the error
+        console.error('[Email Service Unavailable] OTP generated but email not sent');
+        return res.json({ 
+          message: 'OTP generated. Email service temporarily unavailable.',
+          otp: process.env.NODE_ENV === 'development' ? otp : undefined,
+          debug: process.env.NODE_ENV === 'development' ? 'Email service not configured' : undefined
+        });
+      }
+    } catch (emailError) {
+      console.error('[Email Send Error]', emailError.message);
+      // Return success but mention email issue
+      return res.json({ 
+        message: 'OTP generated. Email service temporarily unavailable.',
+        otp: process.env.NODE_ENV === 'development' ? otp : undefined,
+        debug: process.env.NODE_ENV === 'development' ? emailError.message : undefined
+      });
+    }
   } catch (err) {
     console.error('[Forgot Password Error]', err);
     return res.status(500).json({ error: 'Server error' });
@@ -93,7 +170,16 @@ router.post('/forgot-password', async (req, res) => {
 
 router.post('/verify-otp', async (req, res) => {
   const { email, otp, newPassword } = req.body;
-  const models = getModels();
+
+  // Validate input
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({ error: 'Email, OTP, and new password are required' });
+  }
+
+  // Validate password strength
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+  }
 
   try {
     const user = await models.User.findOne({ where: { email } });
@@ -105,52 +191,29 @@ router.post('/verify-otp', async (req, res) => {
       return res.status(400).json({ error: 'Invalid OTP' });
     }
 
+    // Check if OTP has expired (if otp_expires_at field exists)
+    if (user.otp_expires_at && new Date() > user.otp_expires_at) {
+      user.remember_token = null;
+      user.otp_expires_at = null;
+      await user.save();
+      return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
+    }
+
     user.password = await bcrypt.hash(newPassword, 12);
     user.remember_token = null; // Clear OTP after use
+    user.otp_expires_at = null; // Clear expiration time
     await user.save();
 
+    console.log('[Password Reset] Success for:', email);
     return res.json({ message: 'Password reset successfully' });
   } catch (err) {
     console.error('[Verify OTP Error]', err);
-    return res.status(400).json({ error: 'Invalid OTP or server error' });
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
-router.post('/refresh-token', async (req, res) => {
-  const models = getModels();
-  const oldToken = req.cookies.token;
-  if (!oldToken) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
-
-  try {
-    const decoded = jwt.verify(oldToken, process.env.JWT_SECRET, { ignoreExpiration: true });
-    const user = await models.User.findOne({ where: { id: decoded.id } });
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-
-    const payload = {
-      id: user.id,
-      email: user.email,
-      role: Number(user.role),
-      remember_token: user.remember_token || null
-    };
-    const newToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
-
-    res.cookie('token', newToken, buildCookieOptions());
-    return res.json({
-      message: 'Token refreshed',
-      user: { id: user.id, email: user.email, role: Number(user.role) }
-    });
-  } catch (err) {
-    console.error('[Refresh Token Error]', err);
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-})
 /** Refresh Token **/
 router.post('/refresh-token', async (req, res) => {
-  const models = getModels();
   const oldToken = req.cookies.token;
   if (!oldToken) {
     return res.status(401).json({ error: 'No token provided' });
@@ -195,31 +258,62 @@ router.post('/logout', (req, res) => {
 
 /** Register (User) **/
 router.post('/register', async (req, res) => {
-  const models = getModels();
   const { name, email, password, number } = req.body;
+  
+  console.log('[Register] Request:', { name, email, number });
+  
   if (!name || !email || !password || !number) {
     return res.status(400).json({ error: 'All fields are required.' });
+  }
+
+  // Basic email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Invalid email format' });
+  }
+
+  // Basic phone validation
+  const phoneRegex = /^\d{10}$/;
+  if (!phoneRegex.test(number)) {
+    return res.status(400).json({ error: 'Phone number must be 10 digits' });
   }
 
   try {
     const exists = await models.User.findOne({ where: { email } });
     if (exists) {
+      console.log('[Register] Email already exists:', email);
       return res.status(400).json({ error: 'Email already registered' });
     }
 
     const hashed = await bcrypt.hash(password, 12);
     const newUser = await models.User.create({
-      name, email, password: hashed, number, role: 3
+      name, 
+      email, 
+      password: hashed, 
+      number, 
+      role: 3
     });
 
-    const payload = { id: newUser.id, email, role: 3, remember_token: null };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const payload = { 
+      id: newUser.id, 
+      email, 
+      role: 3, 
+      remember_token: null 
+    };
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' });
 
     res.cookie('token', token, buildCookieOptions());
+    console.log('[Register] Success for:', email);
+    
     return res.status(201).json({
       message: 'User registered successfully',
-      user: { id: newUser.id, email, role: 3 },
-      token // Include token in response body for frontend
+      user: { 
+        id: newUser.id, 
+        name: newUser.name,
+        email, 
+        role: 3 
+      },
+      token
     });
   } catch (err) {
     console.error('[Register Error]', err);
@@ -229,7 +323,6 @@ router.post('/register', async (req, res) => {
 
 /** Register Admin **/
 router.post('/register-admin', async (req, res) => {
-  const models = getModels();
   const { name, email, password, number } = req.body;
   if (!name || !email || !password || !number) {
     return res.status(400).json({ error: 'All fields are required.' });
@@ -262,50 +355,57 @@ router.post('/register-admin', async (req, res) => {
   }
 });
 
-/** Fetch All Users **/
-router.get('/', async (req, res) => {
-  const models = getModels();
+/** Test endpoint to check models **/
+router.get('/test', async (req, res) => {
   try {
-    const users = await models.User.findAll();
-    return res.json(users);
+    console.log('[GET /users/test] Testing models...');
+    console.log('[GET /users/test] Models available:', Object.keys(models));
+    console.log('[GET /users/test] User model:', !!models.User);
+    
+    if (!models.User) {
+      return res.status(500).json({ error: 'User model not found' });
+    }
+    
+    const count = await models.User.count();
+    console.log('[GET /users/test] User count:', count);
+    
+    return res.json({ 
+      message: 'Models working correctly',
+      userCount: count,
+      availableModels: Object.keys(models)
+    });
   } catch (err) {
-    console.error('[Fetch Users Error]', err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('[GET /users/test] Error:', err.message);
+    return res.status(500).json({ 
+      error: 'Test failed', 
+      details: err.message 
+    });
   }
 });
 
-/** Forgot Password **/
-router.post('/forgot-password', async (req, res) => {
-  const { email } = req.body;
-  const models = getModels();
-
+/** Fetch All Users **/
+router.get('/all', authenticate(), async (req, res) => {
+  console.log('[GET /users/all] Request received from user:', req.user);
   try {
-    const user = await models.User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const resetToken = jwt.sign(
-      { id: user.id, email: user.email, purpose: 'password_reset' },
-      process.env.JWT_SECRET,
-      { expiresIn: '15m' }
-    );
-    const resetLink = `${process.env.APP_CLIENT_URL}/reset-password?token=${resetToken}`;
-
-    const { sendResetPasswordEmail } = require('../utils/mailer');
-    await sendResetPasswordEmail(user.email, resetLink);
-
-    return res.json({ message: 'Password reset email sent' });
+    console.log('[GET /users/all] Attempting to fetch users...');
+    const users = await models.User.findAll({
+      attributes: ['id', 'name', 'email', 'role', 'number', 'created_at']
+    });
+    console.log('[GET /users/all] Successfully fetched', users.length, 'users');
+    return res.json(users);
   } catch (err) {
-    console.error('[Forgot Password Error]', err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('[GET /users/all] Error:', err.message);
+    console.error('[GET /users/all] Stack:', err.stack);
+    return res.status(500).json({ 
+      error: 'Server error', 
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined 
+    });
   }
 });
 
 /** Reset Password **/
 router.post('/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
-  const models = getModels();
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -348,7 +448,6 @@ router.get('/verify', authenticate(), (req, res) => {
 
 // Booking Agent Registration Route
 router.post('/register-booking-agent', async (req, res) => {
-  const models = getModels();
   const { name, email, password, number } = req.body;
   
   // Check if required fields are provided
@@ -392,23 +491,10 @@ router.post('/register-booking-agent', async (req, res) => {
   }
 });
 
-router.get('/', authenticate(), async (req, res) => {
-  const models = getModels();
 
-  try {
-    const users = await models.User.findAll({
-      attributes: ['id', 'email', 'role'], // Limit fields
-    });
-    return res.json(users);
-  } catch (err) {
-    console.error('[Fetch Users Error]', err);
-    return res.status(500).json({ error: 'Server error' });
-  }
-});
 
 // Remove or Fix Broken /:id Endpoint
 router.get('/:id', authenticate(), async (req, res) => {
-  const models = getModels();
 
   try {
     const user = await models.User.findByPk(req.params.id, {
@@ -450,7 +536,6 @@ router.post(
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const models = getModels();
     const { identifier } = req.body;
 
     try {
@@ -509,7 +594,6 @@ router.post(
 
 
 router.get('/profile', authenticate(), async (req, res) => {
-  const models = getModels();
   try {
     const user = await models.User.findByPk(req.user.id, {
       attributes: [
@@ -543,7 +627,6 @@ router.get('/profile', authenticate(), async (req, res) => {
 
 
 router.post('/profile', authenticate(), async (req, res) => {
-  const models = getModels();
   const {
     name,
     dob,

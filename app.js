@@ -56,12 +56,16 @@ app.use('/booked-seat', require('./src/routes/seatRoutes'));
 app.use('/flight-schedules', require('./src/routes/flightScheduleRoutes'));
 app.use('/airport', require('./src/routes/airport'));
 app.use('/coupons', require('./src/routes/coupans'));
+app.use('/tickets', require('./src/routes/ticketRoutes'));
+
+// Error handling middleware
+const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
 
 // Handle unmatched routes
-app.use((req, res, next) => {
-  console.log('Unmatched route:', req.method, req.url);
-  res.status(404).json({ error: 'Route not found' });
-});
+app.use(notFoundHandler);
+
+// Global error handler
+app.use(errorHandler);
 
 // Start the server
 const PORT = process.env.PORT || 4000;
