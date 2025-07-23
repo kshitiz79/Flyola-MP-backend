@@ -30,7 +30,6 @@ models.FlightSchedule.belongsTo(models.Flight, { foreignKey: 'flight_id' });
 models.BookedSeat.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id' });
 models.Booking.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id' });
 models.Booking.belongsTo(models.User, { foreignKey: 'bookedUserId' });
-models.Booking.hasMany(models.Payment, { foreignKey: 'booking_id' });
 models.Booking.hasMany(models.Passenger, { foreignKey: 'bookingId' });
 models.Payment.belongsTo(models.Booking, { foreignKey: 'booking_id' });
 
@@ -39,6 +38,7 @@ models.Billing.belongsTo(models.User, { foreignKey: 'user_id' });
 models.Flight.hasMany(models.FlightSchedule, { foreignKey: 'flight_id' });
 models.Passenger.belongsTo(models.Booking, { foreignKey: 'bookingId' });
 models.Booking.belongsTo(models.Agent, { foreignKey: 'agentId', onDelete: 'SET NULL' }); // New relationship
+models.Booking.hasMany(models.BookedSeat, { foreignKey: 'booking_id' });
 models.SeatHold.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id' });
 
 module.exports = models;

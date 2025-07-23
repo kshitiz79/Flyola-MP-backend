@@ -607,7 +607,7 @@ async function getBookings(req, res) {
                 { model: models.BookedSeat, attributes: ['seat_label'], required: false },
                 { model: models.Passenger, required: false },
                 { model: models.FlightSchedule, required: false },
-                { model: models.Payment, required: false },
+                { model: models.Payment, as: 'Payments', required: false },
                 { model: models.Agent, required: false },
             ],
             order: [
@@ -654,17 +654,17 @@ async function getBookingById(req, res) {
         let booking;
         if (id) {
             booking = await models.Booking.findByPk(id, {
-                include: [models.Passenger, models.FlightSchedule, models.BookedSeat, models.Payment, models.Agent],
+                include: [models.Passenger, models.FlightSchedule, models.BookedSeat, { model: models.Payment, as: 'Payments' }, models.Agent],
             });
         } else if (pnr) {
             booking = await models.Booking.findOne({
                 where: { pnr },
-                include: [models.Passenger, models.FlightSchedule, models.BookedSeat, models.Payment, models.Agent],
+                include: [models.Passenger, models.FlightSchedule, models.BookedSeat, { model: models.Payment, as: 'Payments' }, models.Agent],
             });
         } else if (bookingNo) {
             booking = await models.Booking.findOne({
                 where: { bookingNo },
-                include: [models.Passenger, models.FlightSchedule, models.BookedSeat, models.Payment, models.Agent],
+                include: [models.Passenger, models.FlightSchedule, models.BookedSeat, { model: models.Payment, as: 'Payments' }, models.Agent],
             });
         } else {
             return res.status(400).json({ error: 'Must provide id, pnr, or bookingNo' });
