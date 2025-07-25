@@ -302,6 +302,7 @@ async function getSchedulePriceByDay(req, res) {
   const models = getModels();
   const scheduleId = req.query.schedule_id || req.params.id;
   const monthQuery = req.query.month;
+  const startDateParam = req.query.start_date; // New parameter
 
   if (!scheduleId) {
     return res.status(400).json({ error: 'schedule_id is required' });
@@ -330,8 +331,18 @@ async function getSchedulePriceByDay(req, res) {
       month = now.getMonth() + 1;
     }
 
-    const startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
+    let startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
     const endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
+
+    // If start_date is provided, use it as the lower bound (if it's after the default startDate)
+    if (startDateParam) {
+      const parsedStart = toZonedTime(new Date(startDateParam), 'Asia/Kolkata');
+      if (!isNaN(parsedStart)) {
+        if (parsedStart > startDate) {
+          startDate = parsedStart;
+        }
+      }
+    }
 
     const weekdayMap = {
       Sunday: 0,
