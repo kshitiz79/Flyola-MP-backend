@@ -57,6 +57,7 @@ app.use('/flight-schedules', require('./src/routes/flightScheduleRoutes'));
 app.use('/airport', require('./src/routes/airport'));
 app.use('/coupons', require('./src/routes/coupans'));
 app.use('/tickets', require('./src/routes/ticketRoutes'));
+app.use('/cancellation', require('./src/routes/cancellation'));
 
 // Error handling middleware
 const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');

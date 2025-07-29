@@ -15,6 +15,7 @@ const models = {
   SeatHold: require('./seatHold'), 
   Joy_Ride_Slot: require('./joyRide'),
   JoyRideBooking : require('./joyRideBooking'),
+  Refund: require('./refund'),
 
   sequelize,
   Sequelize,
@@ -39,6 +40,7 @@ models.Flight.hasMany(models.FlightSchedule, { foreignKey: 'flight_id' });
 models.Passenger.belongsTo(models.Booking, { foreignKey: 'bookingId' });
 models.Booking.belongsTo(models.Agent, { foreignKey: 'agentId', onDelete: 'SET NULL' }); // New relationship
 models.Booking.hasMany(models.BookedSeat, { foreignKey: 'booking_id' });
+models.Booking.hasMany(models.Refund, { foreignKey: 'booking_id' });
 models.SeatHold.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id' });
 
 module.exports = models;

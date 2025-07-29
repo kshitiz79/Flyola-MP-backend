@@ -51,7 +51,7 @@ const Booking = sequelize.define(
       defaultValue: 'PENDING',
     },
 bookingStatus: {
-  type: DataTypes.ENUM('PENDING', 'CONFIRMED', 'CANCELLED'),
+  type: DataTypes.ENUM('PENDING', 'CONFIRMED', 'CANCELLED', 'SUCCESS'),
   defaultValue: 'PENDING',
 },
     bookedUserId: {
@@ -77,6 +77,22 @@ bookingStatus: {
     agentId: {
       type: DataTypes.BIGINT.UNSIGNED, // Matches Agent.id
       allowNull: true, // Allow null for bookings not tied to an agent
+    },
+    cancellationReason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    cancelledAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    refundAmount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+    },
+    cancellationCharges: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
     },
     created_at: {
       type: DataTypes.DATE,
