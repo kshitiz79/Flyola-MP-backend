@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { Booking, Passenger, FlightSchedule, Airport, Flight, Payment } = require('../model');
+const { Booking, Passenger, FlightSchedule, Airport, Flight, Payment, BookedSeat } = require('../model');
 
 // Get ticket data by booking ID or PNR
 router.get('/ticket/:identifier', async (req, res) => {
   try {
     const { identifier } = req.params;
-    
+
     // Find booking by PNR or booking number
     const booking = await Booking.findOne({
       where: {
@@ -21,10 +21,19 @@ router.get('/ticket/:identifier', async (req, res) => {
           model: Passenger
         },
         {
-          model: FlightSchedule
+          model: FlightSchedule,
+          include: [
+            {
+              model: Flight
+            }
+          ]
         },
         {
-          model: Payment
+          model: Payment,
+          as: 'Payments'
+        },
+        {
+          model: BookedSeat
         }
       ]
     });
@@ -56,6 +65,7 @@ router.get('/ticket/:identifier', async (req, res) => {
       },
       flight: {
         id: booking.FlightSchedule?.flight_id || 'FL001',
+        flightNumber: booking.FlightSchedule?.Flight?.flight_number || `FL${booking.FlightSchedule?.flight_id || '001'}`,
         departure: departureAirport?.airport_name || 'Unknown Airport',
         arrival: arrivalAirport?.airport_name || 'Unknown Airport',
         departureCode: departureAirport?.airport_code || 'UNK',
@@ -65,7 +75,7 @@ router.get('/ticket/:identifier', async (req, res) => {
         selectedDate: booking.bookDate,
         totalPrice: booking.totalFare
       },
-      passengers: booking.Passengers?.map(passenger => ({
+      passengers: booking.Passengers?.map((passenger, index) => ({
         id: passenger.id,
         name: passenger.name,
         fullName: passenger.name,
@@ -74,8 +84,17 @@ router.get('/ticket/:identifier', async (req, res) => {
         dateOfBirth: passenger.dob,
         type: passenger.type,
         email: booking.email_id,
-        phone: booking.contact_no
+        phone: booking.contact_no,
+        seat: booking.BookedSeats?.[index]?.seat_label || 'Not Assigned'
       })) || [],
+      seats: {
+        labels: booking.BookedSeats?.map(seat => seat.seat_label).join(', ') || 'Not Assigned',
+        count: booking.BookedSeats?.length || 0,
+        details: booking.BookedSeats?.map(seat => ({
+          label: seat.seat_label,
+          id: seat.id
+        })) || []
+      },
       payment: booking.Payments?.[0] || null
     };
 
@@ -103,10 +122,19 @@ router.get('/bookings', async (req, res) => {
           model: Passenger
         },
         {
-          model: FlightSchedule
+          model: FlightSchedule,
+          include: [
+            {
+              model: Flight
+            }
+          ]
         },
         {
-          model: Payment
+          model: Payment,
+          as: 'Payments'
+        },
+        {
+          model: BookedSeat
         }
       ],
       order: [['created_at', 'DESC']],
@@ -171,6 +199,67 @@ router.get('/test-data', async (req, res) => {
   }
 });
 
+// Simple test endpoint to check if API is working
+router.get('/test', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      message: 'Ticket API is working',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'API test failed',
+      error: error.message
+    });
+  }
+});
+
+// Debug endpoint to check seat data
+router.get('/debug-seats', async (req, res) => {
+  try {
+    const booking = await Booking.findOne({
+      include: [
+        {
+          model: BookedSeat
+        },
+        {
+          model: Passenger
+        }
+      ],
+      order: [['created_at', 'DESC']]
+    });
+
+    if (!booking) {
+      return res.json({
+        success: false,
+        message: 'No booking found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        bookingId: booking.id,
+        pnr: booking.pnr,
+        bookedSeats: booking.BookedSeats,
+        passengers: booking.Passengers,
+        seatLabels: booking.BookedSeats?.map(seat => seat.seat_label).join(', ') || 'No seats',
+        seatCount: booking.BookedSeats?.length || 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Debug seats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Debug failed',
+      error: error.message
+    });
+  }
+});
+
 // Get ticket data for the get-ticket page
 router.get('/get-ticket', async (req, res) => {
   try {
@@ -178,7 +267,7 @@ router.get('/get-ticket', async (req, res) => {
     const bookingId = req.query.id;
     const pnr = req.query.pnr;
     let booking;
-    
+
     if (bookingId) {
       booking = await Booking.findByPk(bookingId, {
         include: [
@@ -186,10 +275,19 @@ router.get('/get-ticket', async (req, res) => {
             model: Passenger
           },
           {
-            model: FlightSchedule
+            model: FlightSchedule,
+            include: [
+              {
+                model: Flight
+              }
+            ]
           },
           {
-            model: Payment
+            model: Payment,
+            as: 'Payments'
+          },
+          {
+            model: BookedSeat
           }
         ]
       });
@@ -201,10 +299,19 @@ router.get('/get-ticket', async (req, res) => {
             model: Passenger
           },
           {
-            model: FlightSchedule
+            model: FlightSchedule,
+            include: [
+              {
+                model: Flight
+              }
+            ]
           },
           {
-            model: Payment
+            model: Payment,
+            as: 'Payments'
+          },
+          {
+            model: BookedSeat
           }
         ]
       });
@@ -215,10 +322,19 @@ router.get('/get-ticket', async (req, res) => {
             model: Passenger
           },
           {
-            model: FlightSchedule
+            model: FlightSchedule,
+            include: [
+              {
+                model: Flight
+              }
+            ]
           },
           {
-            model: Payment
+            model: Payment,
+            as: 'Payments'
+          },
+          {
+            model: BookedSeat
           }
         ],
         order: [['created_at', 'DESC']]
@@ -235,6 +351,7 @@ router.get('/get-ticket', async (req, res) => {
     console.log("Found booking:", JSON.stringify(booking, null, 2));
     console.log("FlightSchedule:", booking.FlightSchedule);
     console.log("Passengers:", booking.Passengers);
+    console.log("BookedSeats:", booking.BookedSeats);
 
     // Get airport details
     const departureAirport = await Airport.findByPk(booking.FlightSchedule?.departure_airport_id);
@@ -242,6 +359,14 @@ router.get('/get-ticket', async (req, res) => {
 
     console.log("Departure Airport:", departureAirport);
     console.log("Arrival Airport:", arrivalAirport);
+
+    // Get flight information
+    const flight = booking.FlightSchedule?.Flight;
+    const flightNumber = flight?.flight_number || `FL${booking.FlightSchedule?.flight_id || booking.schedule_id || '001'}`;
+
+    // Get seat information
+    const bookedSeats = booking.BookedSeats || [];
+    const seatLabels = bookedSeats.map(seat => seat.seat_label).join(', ') || 'Not Assigned';
 
     // Format the ticket data with real booking information
     const ticketData = {
@@ -262,6 +387,7 @@ router.get('/get-ticket', async (req, res) => {
       },
       flight: {
         id: booking.FlightSchedule?.flight_id || booking.schedule_id || 'FL001',
+        flightNumber: flightNumber,
         departure: departureAirport?.airport_name || departureAirport?.city || 'Unknown Airport',
         arrival: arrivalAirport?.airport_name || arrivalAirport?.city || 'Unknown Airport',
         departureCode: departureAirport?.airport_code || 'UNK',
@@ -272,17 +398,26 @@ router.get('/get-ticket', async (req, res) => {
         totalPrice: parseFloat(booking.totalFare),
         price: booking.FlightSchedule?.price ? parseFloat(booking.FlightSchedule.price) : parseFloat(booking.totalFare)
       },
-      passengers: booking.Passengers?.map(passenger => ({
+      passengers: booking.Passengers?.map((passenger, index) => ({
         id: passenger.id,
         name: passenger.name,
         fullName: passenger.name,
         title: passenger.title || 'Mr',
-        age: passenger.age,
+        age: passenger.age || '25', // Use actual age or default
         dateOfBirth: passenger.dob,
         type: passenger.type || 'Adult',
         email: booking.email_id,
-        phone: booking.contact_no
+        phone: booking.contact_no,
+        seat: bookedSeats[index]?.seat_label || 'Not Assigned'
       })) || [],
+      seats: {
+        labels: seatLabels,
+        count: bookedSeats.length,
+        details: bookedSeats.map(seat => ({
+          label: seat.seat_label,
+          id: seat.id
+        }))
+      },
       payment: booking.Payments?.[0] ? {
         id: booking.Payments[0].id,
         amount: parseFloat(booking.Payments[0].amount || booking.totalFare),

@@ -606,7 +606,13 @@ async function getBookings(req, res) {
             include: [
                 { model: models.BookedSeat, attributes: ['seat_label'], required: false },
                 { model: models.Passenger, required: false },
-                { model: models.FlightSchedule, required: false },
+                { 
+                    model: models.FlightSchedule, 
+                    required: false,
+                    include: [
+                        { model: models.Flight, required: false }
+                    ]
+                },
                 { model: models.Payment, as: 'Payments', required: false },
                 { model: models.Agent, required: false },
             ],
@@ -622,18 +628,45 @@ async function getBookings(req, res) {
                     if (!b.FlightSchedule) {
                         console.warn(`Booking ${b.id} (PNR: ${b.pnr}, bookingNo: ${b.bookingNo}) has no FlightSchedule (schedule_id: ${b.schedule_id})`);
                     }
+                    // Enhanced data with safe fallbacks
+                    const seatLabels = b.BookedSeats?.map((s) => s.seat_label).join(", ") || "N/A";
+                    const passengerNames = b.Passengers?.map((p) => p.name).join(", ") || "N/A";
+                    const paymentMode = b.Payments?.[0]?.payment_mode || b.pay_mode || "N/A";
+                    const transactionId = b.Payments?.[0]?.transaction_id || b.transactionId || "N/A";
+                    const agentId = b.Agent?.agentId || "FLYOLA";
+                    
                     return {
                         ...b.toJSON(),
-                        seatLabels: b.BookedSeats.map((s) => s.seat_label),
-                      billing: billing ? billing.toJSON() : null,
-
+                        seatLabels: seatLabels,
+                        billing: billing ? billing.toJSON() : null,
+                        // Enhanced fields for frontend
+                        booked_seat: seatLabels,
+                        passengerNames: passengerNames,
+                        billingName: billing?.billing_name || "N/A",
+                        paymentMode: paymentMode,
+                        transactionId: transactionId,
+                        agentId: agentId,
+                        flightNumber: b.FlightSchedule?.Flight?.flight_number || `FL${b.FlightSchedule?.flight_id || b.schedule_id || '001'}`,
+                        departureAirport: "N/A", // Will be populated by frontend logic
+                        arrivalAirport: "N/A", // Will be populated by frontend logic
+                        userRole: "3", // Will be populated by frontend logic
                     };
                 } catch (billingErr) {
                     console.warn(`Failed to fetch billing for booking ${b.id}:`, billingErr.message);
                     return {
                         ...b.toJSON(),
-                        seatLabels: b.BookedSeats.map((s) => s.seat_label),
+                        seatLabels: b.BookedSeats?.map((s) => s.seat_label).join(", ") || "N/A",
                         billing: null,
+                        booked_seat: b.BookedSeats?.map((s) => s.seat_label).join(", ") || "N/A",
+                        passengerNames: b.Passengers?.map((p) => p.name).join(", ") || "N/A",
+                        billingName: "N/A",
+                        paymentMode: b.Payments?.[0]?.payment_mode || b.pay_mode || "N/A",
+                        transactionId: b.Payments?.[0]?.transaction_id || b.transactionId || "N/A",
+                        agentId: b.Agent?.agentId || "FLYOLA",
+                        flightNumber: "N/A",
+                        departureAirport: "N/A",
+                        arrivalAirport: "N/A",
+                        userRole: "3",
                     };
                 }
             })

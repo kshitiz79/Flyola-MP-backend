@@ -160,6 +160,29 @@ const deletePayment = async (req, res) => {
   }
 };
 
+const getUserPayments = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const payments = await getModels().Payment.findAll({
+      where: { user_id: userId },
+      include: [{ 
+        model: getModels().Booking,
+        attributes: ['id', 'pnr', 'bookingNo', 'bookDate', 'totalFare', 'bookingStatus']
+      }],
+      order: [['created_at', 'DESC']]
+    });
+
+    res.json(payments);
+  } catch (error) {
+    console.error('Get user payments error:', error);
+    res.status(500).json({ error: 'Failed to get user payments: ' + error.message });
+  }
+};
+
 module.exports = {
   createOrder,
   getPayments,
@@ -167,5 +190,6 @@ module.exports = {
   createPayment,
   updatePayment,
   deletePayment,
+  getUserPayments,
   createPaymentUtil,
 };

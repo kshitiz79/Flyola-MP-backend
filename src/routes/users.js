@@ -7,7 +7,7 @@ const models = require('../model');
 require('dotenv').config();
 const { authenticate } = require('../middleware/auth');
 
-const { body, validationResult } = require('express-validator'); 
+const { body, validationResult } = require('express-validator');
 const { buildCookieOptions } = require('../utils/cookie');
 
 
@@ -19,7 +19,7 @@ const createTransporter = () => {
     // Check if email credentials are available
     const emailUser = process.env.EMAIL_USER;
     const emailPass = process.env.EMAIL_PASS;
-    
+
     if (!emailUser || !emailPass) {
       console.warn('[Email Config] Missing email credentials in environment variables');
       return null;
@@ -85,11 +85,11 @@ router.post('/login', async (req, res) => {
     return res.json({
       message: 'Login successful',
       token,
-      user: { 
-        id: user.id, 
-        email: user.email, 
+      user: {
+        id: user.id,
+        email: user.email,
         name: user.name,
-        role: Number(user.role) 
+        role: Number(user.role)
       }
     });
   } catch (err) {
@@ -147,7 +147,7 @@ router.post('/forgot-password', async (req, res) => {
       } else {
         // If email service fails, still return success but log the error
         console.error('[Email Service Unavailable] OTP generated but email not sent');
-        return res.json({ 
+        return res.json({
           message: 'OTP generated. Email service temporarily unavailable.',
           otp: process.env.NODE_ENV === 'development' ? otp : undefined,
           debug: process.env.NODE_ENV === 'development' ? 'Email service not configured' : undefined
@@ -156,7 +156,7 @@ router.post('/forgot-password', async (req, res) => {
     } catch (emailError) {
       console.error('[Email Send Error]', emailError.message);
       // Return success but mention email issue
-      return res.json({ 
+      return res.json({
         message: 'OTP generated. Email service temporarily unavailable.',
         otp: process.env.NODE_ENV === 'development' ? otp : undefined,
         debug: process.env.NODE_ENV === 'development' ? emailError.message : undefined
@@ -259,9 +259,9 @@ router.post('/logout', (req, res) => {
 /** Register (User) **/
 router.post('/register', async (req, res) => {
   const { name, email, password, number } = req.body;
-  
+
   console.log('[Register] Request:', { name, email, number });
-  
+
   if (!name || !email || !password || !number) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
@@ -287,31 +287,31 @@ router.post('/register', async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 12);
     const newUser = await models.User.create({
-      name, 
-      email, 
-      password: hashed, 
-      number, 
+      name,
+      email,
+      password: hashed,
+      number,
       role: 3
     });
 
-    const payload = { 
-      id: newUser.id, 
-      email, 
-      role: 3, 
-      remember_token: null 
+    const payload = {
+      id: newUser.id,
+      email,
+      role: 3,
+      remember_token: null
     };
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' });
 
     res.cookie('token', token, buildCookieOptions());
     console.log('[Register] Success for:', email);
-    
+
     return res.status(201).json({
       message: 'User registered successfully',
-      user: { 
-        id: newUser.id, 
+      user: {
+        id: newUser.id,
         name: newUser.name,
-        email, 
-        role: 3 
+        email,
+        role: 3
       },
       token
     });
@@ -361,44 +361,292 @@ router.get('/test', async (req, res) => {
     console.log('[GET /users/test] Testing models...');
     console.log('[GET /users/test] Models available:', Object.keys(models));
     console.log('[GET /users/test] User model:', !!models.User);
-    
+
     if (!models.User) {
       return res.status(500).json({ error: 'User model not found' });
     }
-    
+
+    // Test database connection
+    await models.sequelize.authenticate();
+    console.log('[GET /users/test] Database connection successful');
+
     const count = await models.User.count();
     console.log('[GET /users/test] User count:', count);
-    
-    return res.json({ 
+
+    // Test a simple query
+    const sampleUser = await models.User.findOne({
+      attributes: ['id', 'name', 'email'],
+      limit: 1
+    });
+
+    return res.json({
       message: 'Models working correctly',
       userCount: count,
-      availableModels: Object.keys(models)
+      availableModels: Object.keys(models),
+      databaseConnected: true,
+      sampleUser: sampleUser ? { id: sampleUser.id, name: sampleUser.name } : null
     });
   } catch (err) {
     console.error('[GET /users/test] Error:', err.message);
-    return res.status(500).json({ 
-      error: 'Test failed', 
-      details: err.message 
+    return res.status(500).json({
+      error: 'Test failed',
+      details: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  }
+});
+
+/** Database health check **/
+router.get('/health', async (req, res) => {
+  try {
+    await models.sequelize.authenticate();
+    const userCount = await models.User.count();
+
+    return res.json({
+      status: 'healthy',
+      database: 'connected',
+      userCount,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('[Health Check] Error:', err.message);
+    return res.status(500).json({
+      status: 'unhealthy',
+      database: 'disconnected',
+      error: err.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
 
 /** Fetch All Users **/
-router.get('/all', authenticate(), async (req, res) => {
+router.get('/all', authenticate([1]), async (req, res) => {
   console.log('[GET /users/all] Request received from user:', req.user);
   try {
     console.log('[GET /users/all] Attempting to fetch users...');
     const users = await models.User.findAll({
-      attributes: ['id', 'name', 'email', 'role', 'number', 'created_at']
+      attributes: ['id', 'name', 'email', 'role', 'number', 'created_at', 'dob', 'gender', 'city', 'state'],
+      order: [['created_at', 'DESC']]
     });
     console.log('[GET /users/all] Successfully fetched', users.length, 'users');
     return res.json(users);
   } catch (err) {
     console.error('[GET /users/all] Error:', err.message);
     console.error('[GET /users/all] Stack:', err.stack);
-    return res.status(500).json({ 
-      error: 'Server error', 
-      details: process.env.NODE_ENV === 'development' ? err.message : undefined 
+    return res.status(500).json({
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+/** Create New User **/
+router.post('/create', authenticate([1]), async (req, res) => {
+  console.log('[POST /users/create] Request from admin:', req.user.id);
+  const { name, email, password, number, role, dob, gender, city, state } = req.body;
+
+  // Validation
+  if (!name || !email || !role) {
+    return res.status(400).json({ error: 'Name, email, and role are required' });
+  }
+
+  if (![1, 2, 3].includes(Number(role))) {
+    return res.status(400).json({ error: 'Role must be 1 (Admin), 2 (Booking Agent), or 3 (Regular User)' });
+  }
+
+  try {
+    // Check if email already exists
+    const existingUser = await models.User.findOne({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+
+    // Check if number already exists (if provided)
+    if (number) {
+      const existingNumber = await models.User.findOne({ where: { number } });
+      if (existingNumber) {
+        return res.status(400).json({ error: 'Phone number already exists' });
+      }
+    }
+
+    // Hash password if provided, otherwise generate a default one
+    const defaultPassword = password || 'flyola123';
+    const hashedPassword = await bcrypt.hash(defaultPassword, 12);
+
+    const newUser = await models.User.create({
+      name,
+      email,
+      password: hashedPassword,
+      number: number || null,
+      role: Number(role),
+      dob: dob || null,
+      gender: gender || null,
+      city: city || null,
+      state: state || null,
+    });
+
+    console.log('[POST /users/create] User created:', newUser.id);
+    
+    // Return user without password
+    const { password: _, ...userResponse } = newUser.toJSON();
+    return res.status(201).json({
+      message: 'User created successfully',
+      user: userResponse
+    });
+  } catch (err) {
+    console.error('[POST /users/create] Error:', err.message);
+    return res.status(500).json({
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+/** Update User **/
+router.put('/:id', authenticate([1]), async (req, res) => {
+  console.log('[PUT /users/:id] Request from admin:', req.user.id);
+  const userId = req.params.id;
+  const { name, email, number, role, dob, gender, city, state, password } = req.body;
+
+  try {
+    const user = await models.User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if email is being changed and if it already exists
+    if (email && email !== user.email) {
+      const existingUser = await models.User.findOne({ 
+        where: { 
+          email,
+          id: { [models.Sequelize.Op.ne]: userId }
+        } 
+      });
+      if (existingUser) {
+        return res.status(400).json({ error: 'Email already exists' });
+      }
+    }
+
+    // Check if number is being changed and if it already exists
+    if (number && number !== user.number) {
+      const existingNumber = await models.User.findOne({ 
+        where: { 
+          number,
+          id: { [models.Sequelize.Op.ne]: userId }
+        } 
+      });
+      if (existingNumber) {
+        return res.status(400).json({ error: 'Phone number already exists' });
+      }
+    }
+
+    // Validate role if provided
+    if (role && ![1, 2, 3].includes(Number(role))) {
+      return res.status(400).json({ error: 'Role must be 1 (Admin), 2 (Booking Agent), or 3 (Regular User)' });
+    }
+
+    // Update fields
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (email) updateData.email = email;
+    if (number !== undefined) updateData.number = number;
+    if (role) updateData.role = Number(role);
+    if (dob !== undefined) updateData.dob = dob;
+    if (gender !== undefined) updateData.gender = gender;
+    if (city !== undefined) updateData.city = city;
+    if (state !== undefined) updateData.state = state;
+    
+    // Hash new password if provided
+    if (password) {
+      updateData.password = await bcrypt.hash(password, 12);
+    }
+
+    await user.update(updateData);
+    
+    console.log('[PUT /users/:id] User updated:', userId);
+    
+    // Return updated user without password
+    const { password: _, ...userResponse } = user.toJSON();
+    return res.json({
+      message: 'User updated successfully',
+      user: userResponse
+    });
+  } catch (err) {
+    console.error('[PUT /users/:id] Error:', err.message);
+    return res.status(500).json({
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+/** Delete User **/
+router.delete('/:id', authenticate([1]), async (req, res) => {
+  console.log('[DELETE /users/:id] Request from admin:', req.user.id);
+  const userId = req.params.id;
+
+  try {
+    // Prevent admin from deleting themselves
+    if (String(userId) === String(req.user.id)) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    const user = await models.User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if user has bookings
+    const bookingCount = await models.Booking.count({ where: { bookedUserId: userId } });
+    if (bookingCount > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete user with ${bookingCount} existing bookings. Please transfer or cancel bookings first.` 
+      });
+    }
+
+    await user.destroy();
+    
+    console.log('[DELETE /users/:id] User deleted:', userId);
+    return res.json({ message: 'User deleted successfully' });
+  } catch (err) {
+    console.error('[DELETE /users/:id] Error:', err.message);
+    return res.status(500).json({
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+/** Get User by ID **/
+router.get('/:id', authenticate([1]), async (req, res) => {
+  console.log('[GET /users/:id] Request from admin:', req.user.id);
+  const userId = req.params.id;
+
+  try {
+    const user = await models.User.findByPk(userId, {
+      attributes: ['id', 'name', 'email', 'role', 'number', 'created_at', 'dob', 'gender', 'city', 'state'],
+      include: [
+        {
+          model: models.Booking,
+          as: 'Bookings',
+          attributes: ['id', 'bookingNo', 'bookingStatus', 'totalFare', 'created_at'],
+          limit: 5,
+          order: [['created_at', 'DESC']]
+        }
+      ]
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log('[GET /users/:id] User found:', userId);
+    return res.json(user);
+  } catch (err) {
+    console.error('[GET /users/:id] Error:', err.message);
+    return res.status(500).json({
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 });
@@ -440,16 +688,9 @@ router.get('/verify', authenticate(), (req, res) => {
 
 
 
-
-
-
-
-// src/routes/users.js
-
-// Booking Agent Registration Route
 router.post('/register-booking-agent', async (req, res) => {
   const { name, email, password, number } = req.body;
-  
+
   // Check if required fields are provided
   if (!name || !email || !password || !number) {
     return res.status(400).json({ error: 'All fields are required.' });
@@ -509,10 +750,6 @@ router.get('/:id', authenticate(), async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
-
-
-module.exports = router;
-
 
 
 router.post(
@@ -593,8 +830,39 @@ router.post(
 
 
 
-router.get('/profile', authenticate(), async (req, res) => {
+// Debug endpoint to check token status
+router.get('/debug-token', authenticate(), async (req, res) => {
+  console.log('[DEBUG Token] Request from user:', req.user);
   try {
+    const user = await models.User.findByPk(req.user.id);
+    return res.json({
+      tokenUser: req.user,
+      dbUser: user ? {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role
+      } : null,
+      userExists: !!user
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/profile', authenticate(), async (req, res) => {
+  console.log('[GET Profile] Request from user:', req.user.id);
+  try {
+    // First check if models are available
+    if (!models.User) {
+      console.error('[GET Profile] User model not available');
+      return res.status(500).json({ error: 'User model not available' });
+    }
+
+    // Debug: Check if we can query the User table at all
+    const userCount = await models.User.count();
+    console.log('[GET Profile] Total users in database:', userCount);
+
     const user = await models.User.findByPk(req.user.id, {
       attributes: [
         'id',
@@ -613,20 +881,41 @@ router.get('/profile', authenticate(), async (req, res) => {
       ],
     });
 
+    console.log('[GET Profile] User found:', !!user);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      console.error('[GET Profile] User not found in database for ID:', req.user.id);
+      console.error('[GET Profile] Token payload:', req.user);
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'User not found in database',
+        userId: req.user.id
+      });
     }
 
-    return res.json({ profile: user });
+    console.log('[GET Profile] Returning profile data');
+    return res.json({
+      id: user.id,
+      email: user.email,
+      role: user.role || 1, // Default role if not set
+      name: user.name,
+      profile: user // Keep full profile for backward compatibility
+    });
   } catch (err) {
-    console.error('[GET Profile Error]', err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('[GET Profile Error]', err.message);
+    console.error('[GET Profile Stack]', err.stack);
+    return res.status(500).json({
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
 
 
 router.post('/profile', authenticate(), async (req, res) => {
+  console.log('[POST Profile] Request from user:', req.user.id);
+  console.log('[POST Profile] Request body:', req.body);
+
   const {
     name,
     dob,
@@ -643,7 +932,15 @@ router.post('/profile', authenticate(), async (req, res) => {
   } = req.body;
 
   try {
+    // First check if models are available
+    if (!models.User) {
+      console.error('[POST Profile] User model not available');
+      return res.status(500).json({ error: 'User model not available' });
+    }
+
     const user = await models.User.findByPk(req.user.id);
+    console.log('[POST Profile] User found:', !!user);
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -662,12 +959,29 @@ router.post('/profile', authenticate(), async (req, res) => {
     if (email !== undefined) user.email = email;
     if (number !== undefined) user.number = number;
 
+    console.log('[POST Profile] Saving user...');
     await user.save();
+    console.log('[POST Profile] User saved successfully');
 
     return res.json({ message: 'Profile updated successfully', profile: user });
   } catch (err) {
-    console.error('[POST Profile Error]', err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('[POST Profile Error]', err.message);
+    console.error('[POST Profile Stack]', err.stack);
+
+    // Check for specific database errors
+    if (err.name === 'SequelizeConnectionError') {
+      return res.status(500).json({ error: 'Database connection error' });
+    } else if (err.name === 'SequelizeValidationError') {
+      return res.status(400).json({ error: 'Validation error', details: err.errors });
+    } else if (err.name === 'SequelizeUniqueConstraintError') {
+      return res.status(400).json({ error: 'Email or phone number already exists' });
+    }
+
+    return res.status(500).json({
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
+module.exports = router;

@@ -13,6 +13,8 @@ router.post('/cancel/:bookingId', cancellationController.cancelBooking);
 router.get('/refunds', cancellationController.getUserRefunds);
 
 // Admin routes (additional role check can be added)
+router.get('/admin/refunds', cancellationController.getAllRefunds);
 router.post('/refunds/process/:refundId', cancellationController.processRefund);
+router.post('/admin-cancel/:bookingId', cancellationController.adminCancelBooking);
 
 module.exports = router;

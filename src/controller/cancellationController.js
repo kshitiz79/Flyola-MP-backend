@@ -353,9 +353,182 @@ const processRefund = async (req, res) => {
   }
 };
 
+// Admin: Cancel booking with full refund or policy-based refund
+const adminCancelBooking = async (req, res) => {
+  let transaction;
+  const { bookingId } = req.params;
+  const { reason, cancellationType, adminNotes } = req.body; // cancellationType: 'full' or 'policy'
+
+  try {
+    transaction = await models.sequelize.transaction();
+
+    // Get booking details
+    const booking = await models.Booking.findByPk(bookingId, {
+      include: [
+        {
+          model: models.FlightSchedule,
+          include: [
+            { model: models.Flight },
+            { model: models.Airport, as: 'DepartureAirport' },
+            { model: models.Airport, as: 'ArrivalAirport' }
+          ]
+        },
+        { model: models.User },
+        { model: models.Passenger }
+      ],
+      transaction
+    });
+
+    if (!booking) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        error: 'Booking not found'
+      });
+    }
+
+    // Check if booking can be cancelled (only confirmed bookings)
+    if (booking.bookingStatus !== 'CONFIRMED' && booking.bookingStatus !== 'SUCCESS') {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        error: 'Only confirmed bookings can be cancelled'
+      });
+    }
+
+    // Check if booking is already cancelled
+    if (booking.bookingStatus === 'CANCELLED') {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        error: 'Booking is already cancelled'
+      });
+    }
+
+    // Calculate hours before departure
+    const departureDateTime = dayjs(`${booking.bookDate} ${booking.FlightSchedule.departure_time}`);
+    const now = dayjs();
+    const hoursBeforeDeparture = departureDateTime.diff(now, 'hour', true);
+
+    const totalFare = parseFloat(booking.totalFare);
+    let refundAmount;
+    let cancellationCharges;
+
+    // Calculate refund based on cancellation type
+    if (cancellationType === 'full') {
+      // Admin full refund - no charges
+      refundAmount = totalFare;
+      cancellationCharges = 0;
+    } else {
+      // Policy-based refund
+      refundAmount = calculateRefundAmount(totalFare, hoursBeforeDeparture);
+      cancellationCharges = calculateCancellationCharges(totalFare, hoursBeforeDeparture);
+    }
+
+    // Update booking status
+    await booking.update({
+      bookingStatus: 'CANCELLED',
+      cancellationReason: reason || `Admin cancellation - ${cancellationType === 'full' ? 'Full refund' : 'Policy-based'}`,
+      cancelledAt: new Date(),
+      refundAmount: refundAmount,
+      cancellationCharges: cancellationCharges
+    }, { transaction });
+
+    // Create refund record
+    const refund = await models.Refund.create({
+      booking_id: booking.id,
+      user_id: booking.bookedUserId,
+      original_amount: totalFare,
+      refund_amount: refundAmount,
+      cancellation_charges: cancellationCharges,
+      refund_status: refundAmount > 0 ? 'APPROVED' : 'NOT_APPLICABLE', // Admin cancellations are auto-approved
+      refund_reason: `Admin cancellation - ${cancellationType === 'full' ? 'Full refund granted' : 'Policy-based refund'}`,
+      hours_before_departure: hoursBeforeDeparture,
+      requested_at: new Date(),
+      processed_at: new Date(),
+      processed_by: req.user.id, // Admin user ID
+      admin_notes: adminNotes || `Admin ${cancellationType === 'full' ? 'full' : 'policy-based'} refund cancellation`
+    }, { transaction });
+
+    // Release seats if booking has seat assignments
+    if (booking.BookedSeats && booking.BookedSeats.length > 0) {
+      await models.BookedSeat.destroy({
+        where: {
+          schedule_id: booking.schedule_id,
+          bookDate: booking.bookDate,
+          booking_id: booking.id
+        },
+        transaction
+      });
+
+      // Log seat release
+      console.log(`[Admin Cancel] Released ${booking.BookedSeats.length} seats for booking ${booking.id}`);
+    }
+
+    await transaction.commit();
+
+    console.log(`[Admin Cancel] Booking ${booking.id} cancelled successfully by admin with ${cancellationType} refund`);
+
+    res.json({
+      success: true,
+      message: `Booking cancelled successfully with ${cancellationType === 'full' ? 'full refund' : 'policy-based refund'}`,
+      data: {
+        bookingId: booking.id,
+        pnr: booking.pnr,
+        cancellationCharges,
+        refundAmount,
+        refundStatus: refundAmount > 0 ? 'APPROVED' : 'NOT_APPLICABLE',
+        cancellationType,
+        processedBy: 'Admin'
+      }
+    });
+
+  } catch (error) {
+    if (transaction) await transaction.rollback();
+    console.error('Admin cancel booking error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to cancel booking: ' + error.message
+    });
+  }
+};
+
+// Admin: Get all refunds
+const getAllRefunds = async (req, res) => {
+  try {
+    const refunds = await models.Refund.findAll({
+      include: [
+        {
+          model: models.Booking,
+          attributes: ['id', 'pnr', 'bookingNo', 'totalFare', 'bookDate']
+        },
+        {
+          model: models.User,
+          attributes: ['id', 'name', 'email']
+        }
+      ],
+      order: [['requested_at', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      data: refunds
+    });
+
+  } catch (error) {
+    console.error('Get all refunds error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch refunds: ' + error.message
+    });
+  }
+};
+
 module.exports = {
   cancelBooking,
   getCancellationDetails,
   getUserRefunds,
-  processRefund
+  processRefund,
+  adminCancelBooking,
+  getAllRefunds
 };

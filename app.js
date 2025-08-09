@@ -14,6 +14,7 @@ const corsOptions = {
     'https://www.jetserveaviation.com',
     'https://jetserveaviation.com',
     'https://flyola.in',
+    'https://www.flyola.in',
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -58,6 +59,7 @@ app.use('/airport', require('./src/routes/airport'));
 app.use('/coupons', require('./src/routes/coupans'));
 app.use('/tickets', require('./src/routes/ticketRoutes'));
 app.use('/cancellation', require('./src/routes/cancellation'));
+app.use('/support', require('./src/routes/support'));
 
 // Error handling middleware
 const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
