@@ -62,7 +62,7 @@ const Payment = sequelize.define(
 
 // Associations
 Payment.associate = (models) => {
-  Payment.belongsTo(models.Booking, { foreignKey: 'booking_id' });
+  Payment.belongsTo(models.Booking, { foreignKey: 'booking_id', as: 'Booking' });
 };
 
 module.exports = Payment;
