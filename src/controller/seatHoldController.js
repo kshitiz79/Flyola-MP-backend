@@ -59,7 +59,6 @@ async function holdSeats(req, res) {
     res.json({ message: 'Seats held successfully', expiresAt });
   } catch (err) {
     await tx.rollback();
-    console.error('holdSeats error:', err);
     res.status(500).json({ error: `Failed to hold seats: ${err.message}` });
   }
 }

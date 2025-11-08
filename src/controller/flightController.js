@@ -44,7 +44,6 @@ async function validateFlightBody(body, isUpdate = false, flightId = null) {
     stops = Array.isArray(airport_stop_ids) ? airport_stop_ids : JSON.parse(airport_stop_ids || '[]');
     stops = [...new Set(stops.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
   } catch (e) {
-    console.warn(`Failed to parse airport_stop_ids: ${airport_stop_ids}`, e);
     stops = [];
   }
 
@@ -72,7 +71,6 @@ async function validateFlightBody(body, isUpdate = false, flightId = null) {
   try {
     await validateIdsExist(getModels().Airport, airportIdsToCheck);
   } catch (err) {
-    console.error('validateIdsExist error:', err.message, { airportIdsToCheck });
     throw err;
   }
 

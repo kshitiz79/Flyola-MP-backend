@@ -41,7 +41,6 @@ async function createPassenger(req, res) {
 
         res.status(201).json({ success: true, message: 'Passenger created successfully', data: passenger });
     } catch (error) {
-        console.error('Error creating passenger:', error);
         res.status(500).json({ success: false, message: 'Error creating passenger', error: error.message });
     }
 }
@@ -54,7 +53,6 @@ async function getAllPassengers(req, res) {
         const passengers = await Passenger.findAll();
         res.status(200).json({ success: true, data: passengers });
     } catch (error) {
-        console.error('Error retrieving passengers:', error);
         res.status(500).json({ success: false, message: 'Error retrieving passengers', error: error.message });
     }
 }

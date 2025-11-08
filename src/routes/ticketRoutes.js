@@ -104,7 +104,6 @@ router.get('/ticket/:identifier', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching ticket data:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',
@@ -148,7 +147,6 @@ router.get('/bookings', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching bookings:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',
@@ -190,7 +188,6 @@ router.get('/test-data', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error testing data:', error);
     res.status(500).json({
       success: false,
       message: 'Database connection failed',
@@ -251,7 +248,6 @@ router.get('/debug-seats', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Debug seats error:', error);
     res.status(500).json({
       success: false,
       message: 'Debug failed',
@@ -337,7 +333,7 @@ router.get('/get-ticket', async (req, res) => {
             model: BookedSeat
           }
         ],
-        order: [['created_at', 'DESC']]
+        order: [['id', 'DESC']]
       });
     }
 
@@ -348,17 +344,11 @@ router.get('/get-ticket', async (req, res) => {
       });
     }
 
-    console.log("Found booking:", JSON.stringify(booking, null, 2));
-    console.log("FlightSchedule:", booking.FlightSchedule);
-    console.log("Passengers:", booking.Passengers);
-    console.log("BookedSeats:", booking.BookedSeats);
 
     // Get airport details
     const departureAirport = await Airport.findByPk(booking.FlightSchedule?.departure_airport_id);
     const arrivalAirport = await Airport.findByPk(booking.FlightSchedule?.arrival_airport_id);
 
-    console.log("Departure Airport:", departureAirport);
-    console.log("Arrival Airport:", arrivalAirport);
 
     // Get flight information
     const flight = booking.FlightSchedule?.Flight;
@@ -438,7 +428,6 @@ router.get('/get-ticket', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching ticket data:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',

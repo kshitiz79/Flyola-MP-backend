@@ -162,7 +162,6 @@ const cancelBooking = async (req, res) => {
 
   } catch (error) {
     if (transaction) await transaction.rollback();
-    console.error('Cancel booking error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to cancel booking: ' + error.message
@@ -235,7 +234,6 @@ const getCancellationDetails = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get cancellation details error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get cancellation details: ' + error.message
@@ -271,7 +269,6 @@ const getUserRefunds = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get user refunds error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get refunds: ' + error.message
@@ -345,7 +342,6 @@ const processRefund = async (req, res) => {
 
   } catch (error) {
     if (transaction) await transaction.rollback();
-    console.error('Process refund error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to process refund: ' + error.message
@@ -462,12 +458,10 @@ const adminCancelBooking = async (req, res) => {
       });
 
       // Log seat release
-      console.log(`[Admin Cancel] Released ${booking.BookedSeats.length} seats for booking ${booking.id}`);
     }
 
     await transaction.commit();
 
-    console.log(`[Admin Cancel] Booking ${booking.id} cancelled successfully by admin with ${cancellationType} refund`);
 
     res.json({
       success: true,
@@ -485,7 +479,6 @@ const adminCancelBooking = async (req, res) => {
 
   } catch (error) {
     if (transaction) await transaction.rollback();
-    console.error('Admin cancel booking error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to cancel booking: ' + error.message
@@ -516,7 +509,6 @@ const getAllRefunds = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get all refunds error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch refunds: ' + error.message

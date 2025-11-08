@@ -20,7 +20,6 @@ const getJoyrideBookings = async (req, res) => {
     });
     res.status(200).json(bookings);
   } catch (err) {
-    console.error('[JoyRideBookingController] Database query failed:', err.message);
     res.status(500).json({ error: 'Database query failed: ' + err.message });
   }
 };
@@ -29,7 +28,6 @@ const getUserJoyrideBookings = async (req, res) => {
   const userId = req.user?.id;
 
   if (!req.user || !userId) {
-    console.log('[JoyRideBookingController] Unauthenticated user accessing user bookings');
     return res.status(200).json([]);
   }
 
@@ -42,7 +40,6 @@ const getUserJoyrideBookings = async (req, res) => {
     });
     res.status(200).json(bookings);
   } catch (err) {
-    console.error('[JoyRideBookingController] Failed to fetch user bookings:', err.message);
     res.status(500).json({ error: 'Failed to fetch bookings: ' + err.message });
   }
 };
@@ -52,11 +49,6 @@ const createJoyrideBooking = async (req, res) => {
   const userId = req.user?.id;
 
   if (!req.user || !userId) {
-    console.error('[JoyRideBookingController] No user or user ID:', {
-      user: req.user,
-      body: req.body,
-      headers: req.headers,
-    });
     return res.status(401).json({ error: 'Unauthorized: User not authenticated' });
   }
 
@@ -142,7 +134,6 @@ const createJoyrideBooking = async (req, res) => {
       order_id: result.order_id,
     });
   } catch (err) {
-    console.error('[JoyRideBookingController] Booking creation failed:', err.message);
     res.status(400).json({ error: err.message || 'Failed to create booking' });
   }
 };

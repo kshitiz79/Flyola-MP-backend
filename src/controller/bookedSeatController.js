@@ -71,7 +71,6 @@ exports.getBookedSeats = async (req, res) => {
     const seatLabels = rows.map((row) => row.seat_label);
     res.json({ bookedSeats: seatLabels });
   } catch (err) {
-    console.error('getBookedSeats error:', err.stack);
     res.status(500).json({ error: `Failed to fetch booked seats: ${err.message}` });
   }
 };
@@ -85,7 +84,6 @@ exports.getBookedSeatById = async (req, res) => {
     if (!row) return res.status(404).json({ error: 'Booked seat not found' });
     res.json(row);
   } catch (err) {
-    console.error('Error fetching booked seat by ID:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -138,7 +136,6 @@ exports.createBookedSeat = async (req, res) => {
     });
   } catch (err) {
     await tx.rollback();
-    console.error('Error creating booked seat:', err);
     res.status(400).json({ error: err.message });
   }
 };
@@ -199,7 +196,6 @@ exports.updateBookedSeat = async (req, res) => {
     });
   } catch (err) {
     await transaction.rollback();
-    console.error('Error updating booked seat:', err);
     res.status(400).json({ error: err.message });
   }
 };
@@ -235,7 +231,6 @@ exports.deleteBookedSeat = async (req, res) => {
     });
   } catch (err) {
     await transaction.rollback();
-    console.error('Error deleting booked seat:', err);
     res.status(400).json({ error: err.message });
   }
 };

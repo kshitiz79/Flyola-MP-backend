@@ -48,7 +48,6 @@ async function bookSeat(req, res) {
     res.json({ message: 'Seat booked successfully', seat_label });
   } catch (err) {
     await tx.rollback();
-    console.error('bookSeat error:', err);
     res.status(500).json({ error: `Failed to book seat: ${err.message}` });
   }
 }
@@ -65,7 +64,6 @@ async function getAvailableSeatLabels(req, res) {
     const availableSeats = await getAvailableSeats({ models, schedule_id, bookDate });
     res.json({ availableSeats });
   } catch (err) {
-    console.error('getAvailableSeatLabels error:', err);
     res.status(500).json({ error: `Failed to fetch available seats: ${err.message}` });
   }
 }

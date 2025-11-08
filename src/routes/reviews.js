@@ -12,7 +12,6 @@ router.get('/', (req, res) => {
       res.json(results);
     })
     .catch((err) => {
-      console.error(err);
       res.status(500).json({ error: 'Database query failed' });
     });
 });

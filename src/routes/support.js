@@ -22,7 +22,6 @@ router.get('/tickets', authenticate(), async (req, res) => {
       data: userTickets
     });
   } catch (error) {
-    console.error('Get support tickets error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get support tickets: ' + error.message
@@ -67,7 +66,6 @@ router.post('/tickets', authenticate(), async (req, res) => {
       message: 'Support ticket created successfully'
     });
   } catch (error) {
-    console.error('Create support ticket error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to create support ticket: ' + error.message
@@ -95,7 +93,6 @@ router.get('/tickets/:id', authenticate(), async (req, res) => {
       data: ticket
     });
   } catch (error) {
-    console.error('Get support ticket error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get support ticket: ' + error.message
@@ -134,7 +131,6 @@ router.put('/tickets/:id', authenticate(), async (req, res) => {
       message: 'Support ticket updated successfully'
     });
   } catch (error) {
-    console.error('Update support ticket error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to update support ticket: ' + error.message

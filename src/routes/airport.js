@@ -4,6 +4,8 @@ const airportController = require('./../controller/airportController');
 
 router.get('/', airportController.getAirports);
 router.post('/', airportController.addAirport);
+
+
 router.put('/:id', airportController.updateAirport);
 router.delete('/:id', airportController.deleteAirport);
 router.put('/activate', airportController.activateAllAirports);

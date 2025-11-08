@@ -16,6 +16,10 @@ const models = {
   Joy_Ride_Slot: require('./joyRide'),
   JoyRideBooking : require('./joyRideBooking'),
   Refund: require('./refund'),
+  // Helicopter models
+  Helipad: require('./helipad')(sequelize, Sequelize.DataTypes),
+  Helicopter: require('./helicopter')(sequelize, Sequelize.DataTypes),
+  HelicopterSchedule: require('./helicopterSchedule')(sequelize, Sequelize.DataTypes),
 
   sequelize,
   Sequelize,

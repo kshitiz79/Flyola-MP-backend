@@ -27,7 +27,6 @@ function generatePNR() {
           if (!existing) return pnr;
         }
       } catch (cryptoError) {
-        console.warn('Crypto module issue, using UUID fallback for PNR:', cryptoError.message);
         let pnr = uuidv4().replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
         if (pnr.length === 6) {
           const existing = await models.Booking.findOne({ where: { pnr } });
@@ -54,7 +53,6 @@ async function completeBooking(req, res) {
   const { bookedSeat, booking, billing, payment, passengers } = req.body;
 
   // Log incoming payload for debugging
-  console.log('[completeBooking] Received payload:', JSON.stringify(req.body, null, 2));
 
   // Input validation
   if (!bookedSeat || !booking || !billing || !payment || !Array.isArray(passengers) || !passengers.length) {
@@ -124,9 +122,7 @@ async function completeBooking(req, res) {
       let decoded;
       try {
         decoded = jwt.verify(token, process.env.JWT_SECRET);
-        console.log('[completeBooking] Decoded token:', decoded);
         if (String(decoded.role) !== '1') {
-          console.log('[completeBooking] Role mismatch: expected 1, got', decoded.role);
           throw new Error('Forbidden: Only admins can use ADMIN payment mode');
         }
         if (
@@ -174,13 +170,33 @@ async function completeBooking(req, res) {
       payment.message = 'Agent booking (no payment required)';
     }
 
-    // Verify seat availability
-    const availableSeats = await getAvailableSeats({
-      models,
-      schedule_id: bookedSeat.schedule_id,
-      bookDate: bookedSeat.bookDate,
-      transaction,
-    });
+    // Verify seat availability - check if this is a helicopter or flight schedule
+    let availableSeats;
+    try {
+      // First try to find as a helicopter schedule
+      const helicopterSchedule = await models.HelicopterSchedule.findByPk(bookedSeat.schedule_id, { transaction });
+      if (helicopterSchedule) {
+        // This is a helicopter booking - use helicopter seat validation
+        const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
+        availableSeats = await getAvailableHelicopterSeats({
+          models,
+          schedule_id: bookedSeat.schedule_id,
+          bookDate: bookedSeat.bookDate,
+          transaction,
+        });
+      } else {
+        // This is a flight booking - use flight seat validation
+        availableSeats = await getAvailableSeats({
+          models,
+          schedule_id: bookedSeat.schedule_id,
+          bookDate: bookedSeat.bookDate,
+          transaction,
+        });
+      }
+    } catch (error) {
+      throw new Error(`Failed to verify seat availability: ${error.message}`);
+    }
+
     for (const seat of bookedSeat.seat_labels) {
       if (!availableSeats.includes(seat)) {
         throw new Error(`Seat ${seat} is not available`);
@@ -257,7 +273,6 @@ async function completeBooking(req, res) {
     });
   } catch (err) {
     if (transaction) await transaction.rollback();
-    console.error('[completeBooking] Error:', err);
     return res.status(400).json({ error: `Failed to complete booking: ${err.message}` });
   }
 }
@@ -268,7 +283,6 @@ async function generatePNRController(req, res) {
     const pnr = await generatePNR();
     res.json({ pnr });
   } catch (err) {
-    console.error("[generatePNR] error:", err);
     res.status(500).json({ error: "Failed to generate PNR" });
   }
 }
@@ -456,11 +470,6 @@ async function bookSeatsWithoutPayment(req, res) {
         });
 
         if (req.io) {
-            console.log('Emitting seats-updated:', {
-                schedule_id: bookedSeat.schedule_id,
-                bookDate: bookedSeat.bookDate,
-                availableSeats: result.availableSeats,
-            });
             req.io.emit('seats-updated', {
                 schedule_id: bookedSeat.schedule_id,
                 bookDate: bookedSeat.bookDate,
@@ -473,7 +482,6 @@ async function bookSeatsWithoutPayment(req, res) {
             data: result,
         });
     } catch (err) {
-        console.error('bookSeatsWithoutPayment error:', { error: err.message, requestBody: req.body });
         return res.status(400).json({
             success: false,
             error: err.message,
@@ -490,7 +498,6 @@ async function bookSeatsWithoutPayment(req, res) {
 async function getIrctcBookings(req, res) {
 
     
-    console.log('Reached getIrctcBookings endpoint');
     try {
         // Check authorization
 
@@ -527,7 +534,6 @@ async function getIrctcBookings(req, res) {
             ],
         });
 
-        console.log('IRCTC Bookings found:', bookings.length);
         if (!bookings || bookings.length === 0) {
             return res.status(200).json({ success: true, data: [] });
         }
@@ -546,7 +552,6 @@ async function getIrctcBookings(req, res) {
 
         return res.status(200).json({ success: true, data: bookingsWithBilling });
     } catch (err) {
-        console.error('getIrctcBookings error:', err.message, err.stack);
         return res.status(500).json({ success: false, error: `Failed to fetch IRCTC bookings: ${err.message}` });
     }
 }
@@ -584,7 +589,6 @@ async function getUserBookings(req, res) {
 
         return res.status(200).json(bookingsWithExtras);
     } catch (err) {
-        console.error('getUserBookings error:', err);
         return res.status(500).json({ error: 'Failed to fetch your bookings' });
     }
 }
@@ -626,7 +630,6 @@ async function getBookings(req, res) {
                 try {
                     const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
                     if (!b.FlightSchedule) {
-                        console.warn(`Booking ${b.id} (PNR: ${b.pnr}, bookingNo: ${b.bookingNo}) has no FlightSchedule (schedule_id: ${b.schedule_id})`);
                     }
                     // Enhanced data with safe fallbacks
                     const seatLabels = b.BookedSeats?.map((s) => s.seat_label).join(", ") || "N/A";
@@ -652,7 +655,6 @@ async function getBookings(req, res) {
                         userRole: "3", // Will be populated by frontend logic
                     };
                 } catch (billingErr) {
-                    console.warn(`Failed to fetch billing for booking ${b.id}:`, billingErr.message);
                     return {
                         ...b.toJSON(),
                         seatLabels: b.BookedSeats?.map((s) => s.seat_label).join(", ") || "N/A",
@@ -674,7 +676,6 @@ async function getBookings(req, res) {
 
         res.json(withBilling);
     } catch (err) {
-        console.error('getBookings error:', err.stack);
         res.status(500).json({ error: `Failed to fetch bookings: ${err.message}` });
     }
 }
@@ -716,7 +717,6 @@ async function getBookingById(req, res) {
 
         res.json(booking);
     } catch (err) {
-        console.error('getBookingById error:', err);
         res.status(500).json({ error: 'Failed to fetch booking' });
     }
 }
@@ -736,7 +736,6 @@ async function createBooking(req, res) {
         }
         res.status(201).json(booking);
     } catch (err) {
-        console.error(err);
         res.status(400).json({ error: err.message });
     }
 }
@@ -760,7 +759,6 @@ async function updateBooking(req, res) {
         }
         res.json({ message: 'Booking updated', booking });
     } catch (err) {
-        console.error(err);
         res.status(400).json({ error: err.message });
     }
 }
@@ -783,7 +781,6 @@ async function deleteBooking(req, res) {
         res.json({ message: 'Booking deleted' });
     } catch (err) {
         if (t) await t.rollback();
-        console.error(err);
         res.status(500).json({ error: err.message });
     }
 }
@@ -801,7 +798,6 @@ async function getBookingSummary(req, res) {
 
         return res.json({ totalBookings, totalSeats: totalSeats || 0 });
     } catch (err) {
-        console.error("Error fetching booking summary:", err);
         res.status(500).json({ error: "Server error" });
     }
 }
@@ -839,7 +835,6 @@ async function getBookingByPnr(req, res) {
 
         return res.status(200).json(response);
     } catch (err) {
-        console.error('getBookingByPnr error:', err);
         return res.status(500).json({ error: 'Failed to fetch booking' });
     }
 }
@@ -889,7 +884,6 @@ async function cancelIrctcBooking(req, res) {
         // Validate departure_time format (expecting HH:mm:ss)
         if (!departureTimeRaw || !/^\d{2}:\d{2}:\d{2}$/.test(departureTimeRaw)) {
             await t.rollback();
-            console.error(`Invalid departure_time format for schedule ${booking.schedule_id}: ${departureTimeRaw}. Expected HH:mm:ss.`);
             return res.status(400).json({ error: 'Invalid departure time format in flight schedule. Expected HH:mm:ss.' });
         }
 
@@ -900,14 +894,10 @@ async function cancelIrctcBooking(req, res) {
         // Validate the combined datetime
         if (!departureTime.isValid()) {
             await t.rollback();
-            console.error(`Failed to parse combined departure datetime for schedule ${booking.schedule_id}: ${departureDateTimeString}`);
             return res.status(400).json({ error: 'Failed to parse departure time in flight schedule' });
         }
 
         const hoursUntilDeparture = departureTime.diff(now, 'hour');
-        console.log(
-            `Cancellation time: ${now.format()}, Departure time: ${departureTime.format()}, Hours until departure: ${hoursUntilDeparture}`
-        );
 
         const totalFare = parseFloat(booking.totalFare);
         const numSeats = booking.BookedSeats.length;
@@ -931,7 +921,6 @@ async function cancelIrctcBooking(req, res) {
         }
 
         if (refundAmount < 0) refundAmount = 0;
-        console.log(`Total Fare: ${totalFare}, Num Seats: ${numSeats}, Cancellation Fee: ${cancellationFee}, Refund Amount: ${refundAmount}`);
 
         // Update agent's wallet
         const agent = await models.Agent.findByPk(booking.agentId, { transaction: t });
@@ -939,7 +928,6 @@ async function cancelIrctcBooking(req, res) {
         await agent.increment('wallet_amount', { by: refundAmount, transaction: t });
         await agent.reload({ transaction: t }); // Refresh agent instance to get updated wallet_amount
         const updatedWalletAmount = Number(agent.wallet_amount);
-        console.log(`Agent ${agent.id} Wallet: ${initialWalletAmount} -> ${updatedWalletAmount} (Refund: ${refundAmount})`);
 
         // Clean up associated records
         await models.BookedSeat.destroy({ where: { booking_id: booking.id }, transaction: t });
@@ -979,7 +967,6 @@ async function cancelIrctcBooking(req, res) {
         });
     } catch (err) {
         if (t) await t.rollback();
-        console.error('cancelIrctcBooking error:', err);
         res.status(500).json({ error: 'Failed to cancel booking: ' + err.message });
     }
 }
@@ -1033,7 +1020,6 @@ async function rescheduleIrctcBooking(req, res) {
         // Validate departure_time format (expecting HH:mm:ss)
         if (!departureTimeRaw || !/^\d{2}:\d{2}:\d{2}$/.test(departureTimeRaw)) {
             await t.rollback();
-            console.error(`Invalid departure_time format for schedule ${booking.schedule_id}: ${departureTimeRaw}. Expected HH:mm:ss.`);
             return res.status(400).json({ error: 'Invalid departure time format in flight schedule. Expected HH:mm:ss.' });
         }
 
@@ -1044,7 +1030,6 @@ async function rescheduleIrctcBooking(req, res) {
         // Validate the combined datetime
         if (!departureTime.isValid()) {
             await t.rollback();
-            console.error(`Failed to parse combined departure datetime for schedule ${booking.schedule_id}: ${departureDateTimeString}`);
             return res.status(400).json({ error: 'Failed to parse departure time in flight schedule' });
         }
 
@@ -1168,7 +1153,6 @@ async function rescheduleIrctcBooking(req, res) {
         });
     } catch (err) {
         if (t) await t.rollback();
-        console.error('rescheduleIrctcBooking error:', err);
         res.status(500).json({ error: 'Failed to reschedule booking: ' + err.message });
     }
 }
@@ -1214,7 +1198,6 @@ async function getBookingsByUser(req, res) {
 
     return res.status(200).json(bookingsWithExtras);
   } catch (err) {
-    console.error('getBookingsByUser error:', err);
     return res.status(500).json({ error: 'Failed to fetch bookings' });
   }
 }

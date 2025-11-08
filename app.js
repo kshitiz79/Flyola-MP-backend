@@ -18,10 +18,28 @@ const corsOptions = {
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
+  optionsSuccessStatus: 200, // Some legacy browsers choke on 204
 };
 
 app.use(cors(corsOptions));
+
+// Additional CORS handling for preflight requests
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
@@ -57,9 +75,15 @@ app.use('/booked-seat', require('./src/routes/seatRoutes'));
 app.use('/flight-schedules', require('./src/routes/flightScheduleRoutes'));
 app.use('/airport', require('./src/routes/airport'));
 app.use('/coupons', require('./src/routes/coupans'));
+app.use('/coupans', require('./src/routes/coupans')); // Add alternative spelling for frontend compatibility
 app.use('/tickets', require('./src/routes/ticketRoutes'));
 app.use('/cancellation', require('./src/routes/cancellation'));
 app.use('/support', require('./src/routes/support'));
+// Helicopter routes
+app.use('/helipads', require('./src/routes/helipads'));
+app.use('/helicopters', require('./src/routes/helicopters'));
+app.use('/helicopter-schedules', require('./src/routes/helicopterSchedules'));
+app.use('/helicopter-seat', require('./src/routes/helicopterSeatRoutes'));
 
 // Error handling middleware
 const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
@@ -73,7 +97,6 @@ app.use(errorHandler);
 // Start the server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
 });
 
 module.exports = { app, io }; // Export both for potential use elsewhere

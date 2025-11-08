@@ -1,6 +1,6 @@
 // Error handling middleware
 const errorHandler = (err, req, res, next) => {
-  console.error('[Error Handler]', {
+  console.error('Error occurred:', {
     message: err.message,
     stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
     url: req.url,
@@ -49,7 +49,6 @@ const errorHandler = (err, req, res, next) => {
 
 // 404 handler
 const notFoundHandler = (req, res) => {
-  console.log(`[404] ${req.method} ${req.url}`);
   res.status(404).json({
     error: 'Route not found',
     method: req.method,

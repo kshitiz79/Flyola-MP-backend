@@ -21,7 +21,6 @@ const createTransporter = () => {
     const emailPass = process.env.EMAIL_PASS;
 
     if (!emailUser || !emailPass) {
-      console.warn('[Email Config] Missing email credentials in environment variables');
       return null;
     }
 
@@ -40,7 +39,6 @@ const createTransporter = () => {
       socketTimeout: 10000,
     });
   } catch (error) {
-    console.error('[Email Transporter Error]', error);
     return null;
   }
 };
@@ -53,7 +51,6 @@ const generateOtp = () => {
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
-  console.log('[Login] Request:', { email });
 
   // Validate input
   if (!email || !password) {
@@ -63,13 +60,11 @@ router.post('/login', async (req, res) => {
   try {
     const user = await models.User.findOne({ where: { email } });
     if (!user) {
-      console.log('[Login] User not found:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      console.log('[Login] Password mismatch for:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -81,7 +76,6 @@ router.post('/login', async (req, res) => {
     };
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' }); // Extended token life
 
-    console.log('[Login] Success for:', email);
     return res.json({
       message: 'Login successful',
       token,
@@ -93,7 +87,6 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('[Login Error]', err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
@@ -142,11 +135,9 @@ router.post('/forgot-password', async (req, res) => {
         };
 
         await transporter.sendMail(mailOptions);
-        console.log('[Email] OTP sent successfully to:', email);
         return res.json({ message: 'OTP sent to your email' });
       } else {
         // If email service fails, still return success but log the error
-        console.error('[Email Service Unavailable] OTP generated but email not sent');
         return res.json({
           message: 'OTP generated. Email service temporarily unavailable.',
           otp: process.env.NODE_ENV === 'development' ? otp : undefined,
@@ -154,7 +145,6 @@ router.post('/forgot-password', async (req, res) => {
         });
       }
     } catch (emailError) {
-      console.error('[Email Send Error]', emailError.message);
       // Return success but mention email issue
       return res.json({
         message: 'OTP generated. Email service temporarily unavailable.',
@@ -163,7 +153,6 @@ router.post('/forgot-password', async (req, res) => {
       });
     }
   } catch (err) {
-    console.error('[Forgot Password Error]', err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
@@ -204,10 +193,8 @@ router.post('/verify-otp', async (req, res) => {
     user.otp_expires_at = null; // Clear expiration time
     await user.save();
 
-    console.log('[Password Reset] Success for:', email);
     return res.json({ message: 'Password reset successfully' });
   } catch (err) {
-    console.error('[Verify OTP Error]', err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
@@ -240,7 +227,6 @@ router.post('/refresh-token', async (req, res) => {
       user: { id: user.id, email: user.email, role: Number(user.role) }
     });
   } catch (err) {
-    console.error('[Refresh Token Error]', err);
     return res.status(401).json({ error: 'Invalid token' });
   }
 });
@@ -260,7 +246,6 @@ router.post('/logout', (req, res) => {
 router.post('/register', async (req, res) => {
   const { name, email, password, number } = req.body;
 
-  console.log('[Register] Request:', { name, email, number });
 
   if (!name || !email || !password || !number) {
     return res.status(400).json({ error: 'All fields are required.' });
@@ -281,7 +266,6 @@ router.post('/register', async (req, res) => {
   try {
     const exists = await models.User.findOne({ where: { email } });
     if (exists) {
-      console.log('[Register] Email already exists:', email);
       return res.status(400).json({ error: 'Email already registered' });
     }
 
@@ -303,7 +287,6 @@ router.post('/register', async (req, res) => {
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' });
 
     res.cookie('token', token, buildCookieOptions());
-    console.log('[Register] Success for:', email);
 
     return res.status(201).json({
       message: 'User registered successfully',
@@ -316,7 +299,6 @@ router.post('/register', async (req, res) => {
       token
     });
   } catch (err) {
-    console.error('[Register Error]', err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
@@ -350,7 +332,6 @@ router.post('/register-admin', async (req, res) => {
       token // Include token in response body for frontend
     });
   } catch (err) {
-    console.error('[Register Admin Error]', err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
@@ -358,9 +339,6 @@ router.post('/register-admin', async (req, res) => {
 /** Test endpoint to check models **/
 router.get('/test', async (req, res) => {
   try {
-    console.log('[GET /users/test] Testing models...');
-    console.log('[GET /users/test] Models available:', Object.keys(models));
-    console.log('[GET /users/test] User model:', !!models.User);
 
     if (!models.User) {
       return res.status(500).json({ error: 'User model not found' });
@@ -368,10 +346,8 @@ router.get('/test', async (req, res) => {
 
     // Test database connection
     await models.sequelize.authenticate();
-    console.log('[GET /users/test] Database connection successful');
 
     const count = await models.User.count();
-    console.log('[GET /users/test] User count:', count);
 
     // Test a simple query
     const sampleUser = await models.User.findOne({
@@ -387,7 +363,6 @@ router.get('/test', async (req, res) => {
       sampleUser: sampleUser ? { id: sampleUser.id, name: sampleUser.name } : null
     });
   } catch (err) {
-    console.error('[GET /users/test] Error:', err.message);
     return res.status(500).json({
       error: 'Test failed',
       details: err.message,
@@ -409,7 +384,6 @@ router.get('/health', async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (err) {
-    console.error('[Health Check] Error:', err.message);
     return res.status(500).json({
       status: 'unhealthy',
       database: 'disconnected',
@@ -419,20 +393,31 @@ router.get('/health', async (req, res) => {
   }
 });
 
-/** Fetch All Users **/
-router.get('/all', authenticate([1]), async (req, res) => {
-  console.log('[GET /users/all] Request received from user:', req.user);
+/** Fetch All Users (simple endpoint) **/
+router.get('/', async (req, res) => {
   try {
-    console.log('[GET /users/all] Attempting to fetch users...');
     const users = await models.User.findAll({
       attributes: ['id', 'name', 'email', 'role', 'number', 'created_at', 'dob', 'gender', 'city', 'state'],
       order: [['created_at', 'DESC']]
     });
-    console.log('[GET /users/all] Successfully fetched', users.length, 'users');
     return res.json(users);
   } catch (err) {
-    console.error('[GET /users/all] Error:', err.message);
-    console.error('[GET /users/all] Stack:', err.stack);
+    return res.status(500).json({
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+/** Fetch All Users **/
+router.get('/all', async (req, res) => {
+  try {
+    const users = await models.User.findAll({
+      attributes: ['id', 'name', 'email', 'role', 'number', 'created_at', 'dob', 'gender', 'city', 'state'],
+      order: [['created_at', 'DESC']]
+    });
+    return res.json(users);
+  } catch (err) {
     return res.status(500).json({
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -442,7 +427,6 @@ router.get('/all', authenticate([1]), async (req, res) => {
 
 /** Create New User **/
 router.post('/create', authenticate([1]), async (req, res) => {
-  console.log('[POST /users/create] Request from admin:', req.user.id);
   const { name, email, password, number, role, dob, gender, city, state } = req.body;
 
   // Validation
@@ -450,8 +434,8 @@ router.post('/create', authenticate([1]), async (req, res) => {
     return res.status(400).json({ error: 'Name, email, and role are required' });
   }
 
-  if (![1, 2, 3].includes(Number(role))) {
-    return res.status(400).json({ error: 'Role must be 1 (Admin), 2 (Booking Agent), or 3 (Regular User)' });
+  if (![1, 2, 3, 4, 5, 6, 7].includes(Number(role))) {
+    return res.status(400).json({ error: 'Role must be 1 (Admin), 2 (Booking Agent), 3 (Regular User), 4 (Head Admin), 5 (Chairman Admin), 6 (Director Admin), or 7 (Accounts Admin)' });
   }
 
   try {
@@ -485,8 +469,7 @@ router.post('/create', authenticate([1]), async (req, res) => {
       state: state || null,
     });
 
-    console.log('[POST /users/create] User created:', newUser.id);
-    
+
     // Return user without password
     const { password: _, ...userResponse } = newUser.toJSON();
     return res.status(201).json({
@@ -494,7 +477,6 @@ router.post('/create', authenticate([1]), async (req, res) => {
       user: userResponse
     });
   } catch (err) {
-    console.error('[POST /users/create] Error:', err.message);
     return res.status(500).json({
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -504,7 +486,6 @@ router.post('/create', authenticate([1]), async (req, res) => {
 
 /** Update User **/
 router.put('/:id', authenticate([1]), async (req, res) => {
-  console.log('[PUT /users/:id] Request from admin:', req.user.id);
   const userId = req.params.id;
   const { name, email, number, role, dob, gender, city, state, password } = req.body;
 
@@ -516,11 +497,11 @@ router.put('/:id', authenticate([1]), async (req, res) => {
 
     // Check if email is being changed and if it already exists
     if (email && email !== user.email) {
-      const existingUser = await models.User.findOne({ 
-        where: { 
+      const existingUser = await models.User.findOne({
+        where: {
           email,
           id: { [models.Sequelize.Op.ne]: userId }
-        } 
+        }
       });
       if (existingUser) {
         return res.status(400).json({ error: 'Email already exists' });
@@ -529,11 +510,11 @@ router.put('/:id', authenticate([1]), async (req, res) => {
 
     // Check if number is being changed and if it already exists
     if (number && number !== user.number) {
-      const existingNumber = await models.User.findOne({ 
-        where: { 
+      const existingNumber = await models.User.findOne({
+        where: {
           number,
           id: { [models.Sequelize.Op.ne]: userId }
-        } 
+        }
       });
       if (existingNumber) {
         return res.status(400).json({ error: 'Phone number already exists' });
@@ -541,8 +522,8 @@ router.put('/:id', authenticate([1]), async (req, res) => {
     }
 
     // Validate role if provided
-    if (role && ![1, 2, 3].includes(Number(role))) {
-      return res.status(400).json({ error: 'Role must be 1 (Admin), 2 (Booking Agent), or 3 (Regular User)' });
+    if (role && ![1, 2, 3, 4, 5, 6, 7].includes(Number(role))) {
+      return res.status(400).json({ error: 'Role must be 1 (Admin), 2 (Booking Agent), 3 (Regular User), 4 (Head Admin), 5 (Chairman Admin), 6 (Director Admin), or 7 (Accounts Admin)' });
     }
 
     // Update fields
@@ -555,16 +536,15 @@ router.put('/:id', authenticate([1]), async (req, res) => {
     if (gender !== undefined) updateData.gender = gender;
     if (city !== undefined) updateData.city = city;
     if (state !== undefined) updateData.state = state;
-    
+
     // Hash new password if provided
     if (password) {
       updateData.password = await bcrypt.hash(password, 12);
     }
 
     await user.update(updateData);
-    
-    console.log('[PUT /users/:id] User updated:', userId);
-    
+
+
     // Return updated user without password
     const { password: _, ...userResponse } = user.toJSON();
     return res.json({
@@ -572,7 +552,6 @@ router.put('/:id', authenticate([1]), async (req, res) => {
       user: userResponse
     });
   } catch (err) {
-    console.error('[PUT /users/:id] Error:', err.message);
     return res.status(500).json({
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -582,7 +561,6 @@ router.put('/:id', authenticate([1]), async (req, res) => {
 
 /** Delete User **/
 router.delete('/:id', authenticate([1]), async (req, res) => {
-  console.log('[DELETE /users/:id] Request from admin:', req.user.id);
   const userId = req.params.id;
 
   try {
@@ -599,17 +577,68 @@ router.delete('/:id', authenticate([1]), async (req, res) => {
     // Check if user has bookings
     const bookingCount = await models.Booking.count({ where: { bookedUserId: userId } });
     if (bookingCount > 0) {
-      return res.status(400).json({ 
-        error: `Cannot delete user with ${bookingCount} existing bookings. Please transfer or cancel bookings first.` 
+      return res.status(400).json({
+        error: `Cannot delete user with ${bookingCount} existing bookings. Please transfer or cancel bookings first.`
       });
     }
 
     await user.destroy();
-    
-    console.log('[DELETE /users/:id] User deleted:', userId);
+
     return res.json({ message: 'User deleted successfully' });
   } catch (err) {
-    console.error('[DELETE /users/:id] Error:', err.message);
+    return res.status(500).json({
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+/** Get Profile - MUST be before /:id route **/
+router.get('/profile', authenticate(), async (req, res) => {
+  try {
+    // First check if models are available
+    if (!models.User) {
+      return res.status(500).json({ error: 'User model not available' });
+    }
+
+    // Debug: Check if we can query the User table at all
+    const userCount = await models.User.count();
+
+    const user = await models.User.findByPk(req.user.id, {
+      attributes: [
+        'id',
+        'name',
+        'role',
+        'dob',
+        'gender',
+        'marital_status',
+        'anniversary_date',
+        'nationality',
+        'city',
+        'state',
+        'profile_picture',
+        'pan_card_number',
+        'email',
+        'number',
+      ],
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        message: 'User not found in database',
+        userId: req.user.id
+      });
+    }
+
+    return res.json({
+      id: user.id,
+      email: user.email,
+      role: user.role || 1, // Default role if not set
+      name: user.name,
+      profile: user // Keep full profile for backward compatibility
+    });
+  } catch (err) {
     return res.status(500).json({
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -619,7 +648,6 @@ router.delete('/:id', authenticate([1]), async (req, res) => {
 
 /** Get User by ID **/
 router.get('/:id', authenticate([1]), async (req, res) => {
-  console.log('[GET /users/:id] Request from admin:', req.user.id);
   const userId = req.params.id;
 
   try {
@@ -635,15 +663,13 @@ router.get('/:id', authenticate([1]), async (req, res) => {
         }
       ]
     });
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    console.log('[GET /users/:id] User found:', userId);
     return res.json(user);
   } catch (err) {
-    console.error('[GET /users/:id] Error:', err.message);
     return res.status(500).json({
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -671,14 +697,12 @@ router.post('/reset-password', async (req, res) => {
 
     return res.json({ message: 'Password has been reset successfully' });
   } catch (err) {
-    console.error('[Reset Password Error]', err);
     return res.status(400).json({ error: 'Invalid or expired token' });
   }
 });
 
 /** Verify Logged-In User **/
 router.get('/verify', authenticate(), (req, res) => {
-  console.log('[Verify] User verified:', req.user);
   return res.json({
     id: req.user.id,
     email: req.user.email,
@@ -727,7 +751,134 @@ router.post('/register-booking-agent', async (req, res) => {
       token  // Include the token in the response for frontend use
     });
   } catch (err) {
-    console.error('[Register Booking Agent Error]', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/** Register Head Admin **/
+router.post('/register-head-admin', async (req, res) => {
+  const { name, email, password, number } = req.body;
+  if (!name || !email || !password || !number) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
+
+  try {
+    const exists = await models.User.findOne({ where: { email } });
+    if (exists) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    const hashed = await bcrypt.hash(password, 12);
+    const newUser = await models.User.create({
+      name, email, password: hashed, number, role: 4
+    });
+
+    const payload = { id: newUser.id, email, role: 4, remember_token: null };
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    res.cookie('token', token, buildCookieOptions());
+    return res.status(201).json({
+      message: 'Head Admin registered successfully',
+      user: { id: newUser.id, email, role: 4 },
+      token
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/** Register Chairman Admin **/
+router.post('/register-chairman-admin', async (req, res) => {
+  const { name, email, password, number } = req.body;
+  if (!name || !email || !password || !number) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
+
+  try {
+    const exists = await models.User.findOne({ where: { email } });
+    if (exists) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    const hashed = await bcrypt.hash(password, 12);
+    const newUser = await models.User.create({
+      name, email, password: hashed, number, role: 5
+    });
+
+    const payload = { id: newUser.id, email, role: 5, remember_token: null };
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    res.cookie('token', token, buildCookieOptions());
+    return res.status(201).json({
+      message: 'Chairman Admin registered successfully',
+      user: { id: newUser.id, email, role: 5 },
+      token
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/** Register Director Admin **/
+router.post('/register-director-admin', async (req, res) => {
+  const { name, email, password, number } = req.body;
+  if (!name || !email || !password || !number) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
+
+  try {
+    const exists = await models.User.findOne({ where: { email } });
+    if (exists) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    const hashed = await bcrypt.hash(password, 12);
+    const newUser = await models.User.create({
+      name, email, password: hashed, number, role: 6
+    });
+
+    const payload = { id: newUser.id, email, role: 6, remember_token: null };
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    res.cookie('token', token, buildCookieOptions());
+    return res.status(201).json({
+      message: 'Director Admin registered successfully',
+      user: { id: newUser.id, email, role: 6 },
+      token
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/** Register Accounts Admin **/
+router.post('/register-accounts-admin', async (req, res) => {
+  const { name, email, password, number } = req.body;
+  if (!name || !email || !password || !number) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
+
+  try {
+    const exists = await models.User.findOne({ where: { email } });
+    if (exists) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    const hashed = await bcrypt.hash(password, 12);
+    const newUser = await models.User.create({
+      name, email, password: hashed, number, role: 7
+    });
+
+    const payload = { id: newUser.id, email, role: 7, remember_token: null };
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    res.cookie('token', token, buildCookieOptions());
+    return res.status(201).json({
+      message: 'Accounts Admin registered successfully',
+      user: { id: newUser.id, email, role: 7 },
+      token
+    });
+  } catch (err) {
     return res.status(500).json({ error: 'Server error' });
   }
 });
@@ -746,7 +897,6 @@ router.get('/:id', authenticate(), async (req, res) => {
     }
     res.json(user);
   } catch (err) {
-    console.error('Error fetching user:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -821,7 +971,6 @@ router.post(
         });
       }
     } catch (err) {
-      console.error('[Auth Error]', err);
       return res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -832,7 +981,6 @@ router.post(
 
 // Debug endpoint to check token status
 router.get('/debug-token', authenticate(), async (req, res) => {
-  console.log('[DEBUG Token] Request from user:', req.user);
   try {
     const user = await models.User.findByPk(req.user.id);
     return res.json({
@@ -851,22 +999,20 @@ router.get('/debug-token', authenticate(), async (req, res) => {
 });
 
 router.get('/profile', authenticate(), async (req, res) => {
-  console.log('[GET Profile] Request from user:', req.user.id);
   try {
     // First check if models are available
     if (!models.User) {
-      console.error('[GET Profile] User model not available');
       return res.status(500).json({ error: 'User model not available' });
     }
 
     // Debug: Check if we can query the User table at all
     const userCount = await models.User.count();
-    console.log('[GET Profile] Total users in database:', userCount);
 
     const user = await models.User.findByPk(req.user.id, {
       attributes: [
         'id',
         'name',
+        'role',
         'dob',
         'gender',
         'marital_status',
@@ -881,10 +1027,7 @@ router.get('/profile', authenticate(), async (req, res) => {
       ],
     });
 
-    console.log('[GET Profile] User found:', !!user);
     if (!user) {
-      console.error('[GET Profile] User not found in database for ID:', req.user.id);
-      console.error('[GET Profile] Token payload:', req.user);
       return res.status(404).json({
         error: 'User not found',
         message: 'User not found in database',
@@ -892,7 +1035,6 @@ router.get('/profile', authenticate(), async (req, res) => {
       });
     }
 
-    console.log('[GET Profile] Returning profile data');
     return res.json({
       id: user.id,
       email: user.email,
@@ -901,8 +1043,6 @@ router.get('/profile', authenticate(), async (req, res) => {
       profile: user // Keep full profile for backward compatibility
     });
   } catch (err) {
-    console.error('[GET Profile Error]', err.message);
-    console.error('[GET Profile Stack]', err.stack);
     return res.status(500).json({
       error: 'Server error',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -913,8 +1053,6 @@ router.get('/profile', authenticate(), async (req, res) => {
 
 
 router.post('/profile', authenticate(), async (req, res) => {
-  console.log('[POST Profile] Request from user:', req.user.id);
-  console.log('[POST Profile] Request body:', req.body);
 
   const {
     name,
@@ -934,12 +1072,10 @@ router.post('/profile', authenticate(), async (req, res) => {
   try {
     // First check if models are available
     if (!models.User) {
-      console.error('[POST Profile] User model not available');
       return res.status(500).json({ error: 'User model not available' });
     }
 
     const user = await models.User.findByPk(req.user.id);
-    console.log('[POST Profile] User found:', !!user);
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -959,14 +1095,10 @@ router.post('/profile', authenticate(), async (req, res) => {
     if (email !== undefined) user.email = email;
     if (number !== undefined) user.number = number;
 
-    console.log('[POST Profile] Saving user...');
     await user.save();
-    console.log('[POST Profile] User saved successfully');
 
     return res.json({ message: 'Profile updated successfully', profile: user });
   } catch (err) {
-    console.error('[POST Profile Error]', err.message);
-    console.error('[POST Profile Stack]', err.stack);
 
     // Check for specific database errors
     if (err.name === 'SequelizeConnectionError') {

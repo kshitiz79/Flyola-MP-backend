@@ -8,7 +8,6 @@ function getRoute(flight) {
       ? flight.airport_stop_ids
       : JSON.parse(flight.airport_stop_ids || '[]');
   } catch (e) {
-    console.error(`Error parsing airport_stop_ids for flight ${flight.id}:`, e);
   }
   const route = [flight.start_airport_id, ...stops, flight.end_airport_id];
   SEG_CACHE.set(flight, route);
@@ -29,7 +28,6 @@ async function getAvailableSeats({ models, schedule_id, bookDate, userId = null,
     transaction,
   });
   if (!schedule || !schedule.Flight) {
-    console.warn(`Schedule ${schedule_id} or associated Flight not found`);
     return [];
   }
   const flight = schedule.Flight;
@@ -40,7 +38,6 @@ async function getAvailableSeats({ models, schedule_id, bookDate, userId = null,
   const depIdx = route.indexOf(schedule.departure_airport_id);
   const arrIdx = route.lastIndexOf(schedule.arrival_airport_id);
   if (depIdx < 0 || arrIdx < 0 || depIdx >= arrIdx) {
-    console.warn(`Invalid departure/arrival for schedule ${schedule_id}: departure_airport_id=${schedule.departure_airport_id}, arrival_airport_id=${schedule.arrival_airport_id}, route=${JSON.stringify(route)}`);
     return [];
   }
 

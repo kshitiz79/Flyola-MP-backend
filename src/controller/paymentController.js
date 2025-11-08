@@ -53,7 +53,6 @@ const createOrder = async (req, res) => {
       ...(payment_mode === 'RAZORPAY_QR' && { qr_code: order.qr_code }),
     });
   } catch (err) {
-    console.error('[createOrder] Error:', err);
     return res.status(500).json({ error: `Failed to create order: ${err.message}` });
   }
 };
@@ -178,7 +177,6 @@ const getUserPayments = async (req, res) => {
 
     res.json(payments);
   } catch (error) {
-    console.error('Get user payments error:', error);
     res.status(500).json({ error: 'Failed to get user payments: ' + error.message });
   }
 };

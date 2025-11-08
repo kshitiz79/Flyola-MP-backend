@@ -25,7 +25,6 @@ async function addWalletAmount(req, res) {
       agent: { id: agent.id, agentId: agent.agentId, wallet_amount: Number(agent.wallet_amount) },
     });
   } catch (err) {
-    console.error('addWalletAmount error:', err);
     return res.status(500).json({ error: 'Failed to add wallet amount' });
   }
 }
@@ -51,7 +50,6 @@ async function getAgentWallet(req, res) {
       no_of_ticket_booked: agent.no_of_ticket_booked,
     });
   } catch (err) {
-    console.error('getAgentWallet error:', err);
     return res.status(500).json({ error: 'Failed to fetch agent wallet' });
   }
 }
@@ -74,7 +72,6 @@ async function getAllAgents(req, res) {
       }))
     );
   } catch (err) {
-    console.error('getAllAgents error:', err);
     return res.status(500).json({ error: 'Failed to fetch agents' });
   }
 }
@@ -100,7 +97,6 @@ async function getAgentById(req, res) {
       no_of_ticket_booked: agent.no_of_ticket_booked,
     });
   } catch (err) {
-    console.error('getAgentById error:', err);
     return res.status(500).json({ error: 'Failed to fetch agent' });
   }
 }
@@ -129,7 +125,6 @@ async function deductWalletAmount(req, res) {
       agent: { id: agent.id, agentId: agent.agentId, wallet_amount: Number(agent.wallet_amount) - amount },
     });
   } catch (err) {
-    console.error('deductWalletAmount error:', err);
     return res.status(500).json({ error: 'Failed to deduct wallet amount' });
   }
 }
@@ -208,7 +203,6 @@ async function getAgentBookings(req, res) {
       },
     });
   } catch (err) {
-    console.error('getAgentBookings error:', err);
     return res.status(500).json({ error: 'Failed to fetch agent bookings' });
   }
 }
@@ -271,7 +265,6 @@ async function getAgentDashboardData(req, res) {
       },
     });
   } catch (err) {
-    console.error('getAgentDashboardData error:', err);
     return res.status(500).json({ error: 'Failed to fetch agent dashboard data' });
   }
 }
@@ -335,7 +328,6 @@ async function recalculateAgentStats(req, res) {
     });
     
   } catch (err) {
-    console.error('recalculateAgentStats error:', err);
     return res.status(500).json({ error: 'Failed to recalculate agent statistics' });
   }
 }

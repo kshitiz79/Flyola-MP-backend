@@ -41,7 +41,6 @@ async function getFlightSchedules(req, res) {
             viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
             viaStopIds = viaStopIds.filter((id) => id && Number.isInteger(id) && id !== 0);
           } catch (e) {
-            console.error(`Error parsing via_stop_id for schedule ${schedule.id}:`, e);
           }
 
           let availableSeats = 0;
@@ -55,7 +54,6 @@ async function getFlightSchedules(req, res) {
             });
             availableSeats = seats.length;
           } catch (error) {
-            console.warn(`Failed to get available seats for schedule ${schedule.id}:`, error.message);
             seatError = error.message;
           }
 
@@ -74,7 +72,6 @@ async function getFlightSchedules(req, res) {
         rows.map(async (schedule) => {
           const flight = schedule.Flight;
           if (!flight) {
-            console.warn(`No flight found for schedule ${schedule.id}`);
             return null;
           }
 
@@ -83,7 +80,6 @@ async function getFlightSchedules(req, res) {
             viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
             viaStopIds = viaStopIds.filter((id) => id && Number.isInteger(id) && id !== 0);
           } catch (e) {
-            console.error(`Error parsing via_stop_id for schedule ${schedule.id}:`, e);
           }
 
           let availableSeats = 0;
@@ -97,7 +93,6 @@ async function getFlightSchedules(req, res) {
             });
             availableSeats = seats.length;
           } catch (error) {
-            console.warn(`Failed to get available seats for schedule ${schedule.id}:`, error.message);
             seatError = error.message;
           }
 
@@ -115,7 +110,6 @@ async function getFlightSchedules(req, res) {
 
     res.json(output);
   } catch (err) {
-    console.error('getFlightSchedules error:', err);
     res.status(500).json({ error: 'Database query failed', details: err.message });
   }
 }
@@ -152,7 +146,6 @@ async function addFlightSchedule(req, res) {
     });
     res.status(201).json({ id: schedule.id });
   } catch (err) {
-    console.error('addFlightSchedule error:', err);
     res.status(500).json({ error: 'Failed to add flight schedule', details: err.message });
   }
 }
@@ -184,7 +177,6 @@ async function updateFlightSchedule(req, res) {
         return res.status(400).json({ error: 'Departure must precede arrival in flight route' });
       }
     } else {
-      console.warn(`No route found for flight ${targetFlightId}, skipping route validation`);
     }
 
     let validViaStopIds = [];
@@ -199,14 +191,12 @@ async function updateFlightSchedule(req, res) {
         });
         validViaStopIds = validViaStopIds.filter((id) => airports.map((a) => a.id).includes(id));
       } catch (e) {
-        console.error(`Error parsing via_stop_id for schedule ${req.params.id}:`, e);
         return res.status(400).json({ error: 'Invalid via_stop_id format' });
       }
     } else {
       try {
         validViaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
       } catch (e) {
-        console.error(`Error parsing existing via_stop_id for schedule ${req.params.id}:`, e);
         validViaStopIds = [];
       }
     }
@@ -220,7 +210,6 @@ async function updateFlightSchedule(req, res) {
     });
     res.json({ message: 'Updated' });
   } catch (err) {
-    console.error('updateFlightSchedule error:', err);
     res.status(500).json({ error: 'Failed to update schedule', details: err.message });
   }
 }
@@ -233,7 +222,6 @@ async function deleteFlightSchedule(req, res) {
     await schedule.destroy();
     res.json({ message: 'Deleted' });
   } catch (err) {
-    console.error('deleteFlightSchedule error:', err);
     res.status(500).json({ error: 'Failed to delete' });
   }
 }
@@ -244,7 +232,6 @@ async function activateAllFlightSchedules(req, res) {
     await models.FlightSchedule.update({ status: 1 }, { where: {} });
     res.json({ message: 'All flight schedules activated' });
   } catch (err) {
-    console.error('activateAllFlightSchedules error:', err);
     res.status(500).json({ error: 'Failed to activate all' });
   }
 }
@@ -260,7 +247,6 @@ async function editAllFlightSchedules(req, res) {
     );
     res.json({ message: 'All flight schedules updated' });
   } catch (err) {
-    console.error('editAllFlightSchedules error:', err);
     res.status(500).json({ error: 'Failed to update all' });
   }
 }
@@ -271,7 +257,6 @@ async function deleteAllFlightSchedules(req, res) {
     await models.FlightSchedule.destroy({ where: {} });
     res.json({ message: 'All flight schedules deleted' });
   } catch (err) {
-    console.error('deleteAllFlightSchedules error:', err);
     res.status(500).json({ error: 'Failed to delete all' });
   }
 }
@@ -287,13 +272,11 @@ async function updateFlightStops(req, res) {
       stops = Array.isArray(airport_stop_ids) ? airport_stop_ids : JSON.parse(airport_stop_ids || '[]');
       stops = [...new Set(stops.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
     } catch (e) {
-      console.warn(`Failed to parse airport_stop_ids: ${airport_stop_ids}`, e);
       stops = [];
     }
     await flight.update({ airport_stop_ids: JSON.stringify(stops) });
     res.json({ message: 'Flight stops updated' });
   } catch (err) {
-    console.error('updateFlightStops error:', err);
     res.status(500).json({ error: 'Failed to update flight stops' });
   }
 }
@@ -364,7 +347,6 @@ async function getSchedulePriceByDay(req, res) {
       viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
       viaStopIds = viaStopIds.filter((id) => id && Number.isInteger(id) && id !== 0);
     } catch (e) {
-      console.error(`Error parsing via_stop_id for schedule ${schedule.id}:`, e);
     }
 
     const priceByDay = [];
@@ -383,7 +365,6 @@ async function getSchedulePriceByDay(req, res) {
           });
           availableSeats = seats.length;
         } catch (error) {
-          console.warn(`Failed to get available seats for schedule ${schedule.id} on ${dateStr}:`, error.message);
           seatError = error.message;
         }
 
@@ -402,7 +383,6 @@ async function getSchedulePriceByDay(req, res) {
 
     res.json(priceByDay);
   } catch (err) {
-    console.error('getSchedulePriceByDay error:', err);
     res.status(500).json({ error: 'Failed to get prices by day', details: err.message });
   }
 }
@@ -466,7 +446,6 @@ async function getScheduleBetweenAirportDate(req, res) {
           viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
           viaStopIds = viaStopIds.filter((id) => id && Number.isInteger(id) && id !== 0);
         } catch (e) {
-          console.error(`Error parsing via_stop_id for schedule ${schedule.id}:`, e);
         }
 
         let availableSeats = 0;
@@ -480,7 +459,6 @@ async function getScheduleBetweenAirportDate(req, res) {
           });
           availableSeats = seats.length;
         } catch (error) {
-          console.warn(`Failed to get available seats for schedule ${schedule.id} on ${date}:`, error.message);
           seatError = error.message;
         }
 
@@ -501,7 +479,6 @@ async function getScheduleBetweenAirportDate(req, res) {
       data: output,
     });
   } catch (err) {
-    console.error('getScheduleBetweenAirportDate error:', err);
     return res.status(500).json({
       success: false,
       error: 'Failed to get active schedules by airport and date',
@@ -511,8 +488,28 @@ async function getScheduleBetweenAirportDate(req, res) {
 }
 
 
+// Get flight schedule by ID
+async function getFlightScheduleById(req, res) {
+  const models = getModels();
+  try {
+    const { id } = req.params;
+    const schedule = await models.FlightSchedule.findByPk(id, {
+      include: [{ model: models.Flight }],
+    });
+
+    if (!schedule) {
+      return res.status(404).json({ error: 'Flight schedule not found' });
+    }
+
+    res.json(schedule);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
 module.exports = {
   getFlightSchedules,
+  getFlightScheduleById,
   addFlightSchedule,
   updateFlightSchedule,
   deleteFlightSchedule,
