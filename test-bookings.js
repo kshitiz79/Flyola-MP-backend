@@ -1,7 +1,7 @@
 const fetch = require('node-fetch');
 
 async function testBookings() {
-  const baseUrl = 'http://localhost:4000';
+  const baseUrl = 'https://api.jetserveaviation.com';
   
   try {
     

@@ -21,25 +21,45 @@ const addAirport = async (req, res) => {
     helipad_name 
   } = req.body;
   
-  if (!city || !airport_code || !airport_name) {
-    return res.status(400).json({ error: 'City, airport code, and airport name are required' });
+  // City is always required
+  if (!city) {
+    return res.status(400).json({ error: 'City is required' });
   }
-  if (![0, 1].includes(Number(status))) {
-    return res.status(400).json({ error: 'Status must be 0 or 1' });
-  }
+  
+  // For helipad-only locations, helipad code and name are required
+  // For airport locations, airport code and name are required
   if (has_helipad && (!helipad_code || !helipad_name)) {
     return res.status(400).json({ error: 'Helipad code and name are required when has_helipad is true' });
+  }
+  
+  // If not helipad-only, airport code and name are required
+  if (!has_helipad && (!airport_code || !airport_name)) {
+    return res.status(400).json({ error: 'Airport code and name are required for airport locations' });
+  }
+  
+  // If has_helipad but also has airport_code, it's airport + helipad (both required)
+  if (has_helipad && airport_code && !airport_name) {
+    return res.status(400).json({ error: 'Airport name is required when airport code is provided' });
+  }
+  
+  if (![0, 1].includes(Number(status))) {
+    return res.status(400).json({ error: 'Status must be 0 or 1' });
   }
   
   try {
     const airportData = { 
       city, 
-      airport_code, 
-      airport_name, 
       status, 
       has_helipad: Boolean(has_helipad)
     };
     
+    // Add airport data if provided
+    if (airport_code) {
+      airportData.airport_code = airport_code;
+      airportData.airport_name = airport_name;
+    }
+    
+    // Add helipad data if has_helipad is true
     if (has_helipad) {
       airportData.helipad_code = helipad_code;
       airportData.helipad_name = helipad_name;
@@ -47,11 +67,11 @@ const addAirport = async (req, res) => {
     
     const airport = await models.Airport.create(airportData);
     res.status(201).json({
-      message: 'Airport added successfully',
+      message: 'Location added successfully',
       airport,
     });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to add airport', details: err.message });
+    res.status(500).json({ error: 'Failed to add location', details: err.message });
   }
 };
 
@@ -67,30 +87,48 @@ const updateAirport = async (req, res) => {
     helipad_name 
   } = req.body;
   
-  if (!city || !airport_code || !airport_name) {
-    return res.status(400).json({ error: 'City, airport code, and airport name are required' });
+  // City is required
+  if (!city) {
+    return res.status(400).json({ error: 'City is required' });
   }
+  
   if (status !== undefined && ![0, 1].includes(Number(status))) {
     return res.status(400).json({ error: 'Status must be 0 or 1' });
   }
+  
+  // Validate helipad data if has_helipad is true
   if (has_helipad && (!helipad_code || !helipad_name)) {
     return res.status(400).json({ error: 'Helipad code and name are required when has_helipad is true' });
+  }
+  
+  // If not helipad-only, airport code and name are required
+  if (!has_helipad && (!airport_code || !airport_name)) {
+    return res.status(400).json({ error: 'Airport code and name are required for airport locations' });
   }
   
   try {
     const airport = await models.Airport.findByPk(airportId);
     if (!airport) {
-      return res.status(404).json({ message: 'Airport not found' });
+      return res.status(404).json({ message: 'Location not found' });
     }
     
     const updateData = { 
       city, 
-      airport_code, 
-      airport_name, 
       status: status ?? airport.status,
       has_helipad: has_helipad !== undefined ? Boolean(has_helipad) : airport.has_helipad
     };
     
+    // Update airport data if provided
+    if (airport_code) {
+      updateData.airport_code = airport_code;
+      updateData.airport_name = airport_name;
+    } else {
+      // If no airport code provided, clear airport data (helipad-only)
+      updateData.airport_code = null;
+      updateData.airport_name = null;
+    }
+    
+    // Update helipad data
     if (has_helipad) {
       updateData.helipad_code = helipad_code;
       updateData.helipad_name = helipad_name;
@@ -101,9 +139,9 @@ const updateAirport = async (req, res) => {
     }
     
     await airport.update(updateData);
-    res.json({ message: 'Airport updated successfully', airport });
+    res.json({ message: 'Location updated successfully', airport });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to update airport', details: err.message });
+    res.status(500).json({ error: 'Failed to update location', details: err.message });
   }
 };
 

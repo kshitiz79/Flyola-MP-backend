@@ -264,11 +264,30 @@ async function completeBooking(req, res) {
       });
     }
 
+    // Return complete booking data with PNR and all details
     return res.status(201).json({
-      bookingId: newBooking.id,
-      bookingNo: newBooking.bookingNo,
-      bookingStatus: newBooking.bookingStatus,
-      paymentStatus: newBooking.paymentStatus,
+      booking: {
+        id: newBooking.id,
+        pnr: newBooking.pnr,
+        bookingNo: newBooking.bookingNo,
+        bookingStatus: newBooking.bookingStatus,
+        paymentStatus: newBooking.paymentStatus,
+        bookDate: newBooking.bookDate,
+        totalFare: newBooking.totalFare,
+        noOfPassengers: newBooking.noOfPassengers,
+        contact_no: newBooking.contact_no,
+        email_id: newBooking.email_id,
+        bookedSeats: bookedSeat.seat_labels,
+      },
+      passengers: passengers.map((p, index) => ({
+        name: p.name,
+        fullName: p.name,
+        title: p.title,
+        age: p.age,
+        type: p.type,
+        dob: p.dob,
+        seat: bookedSeat.seat_labels[index] || 'Not Assigned',
+      })),
       availableSeats: updatedAvailableSeats,
     });
   } catch (err) {
