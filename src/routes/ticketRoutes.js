@@ -344,83 +344,180 @@ router.get('/get-ticket', async (req, res) => {
       });
     }
 
+    // Check if this is a helicopter booking by checking if schedule exists in helicopter_schedules
+    const models = require('../model');
+    const helicopterSchedule = await models.HelicopterSchedule.findByPk(booking.schedule_id, {
+      include: [
+        { 
+          model: models.Helicopter, 
+          as: 'Helicopter' 
+        },
+        {
+          model: models.Airport,
+          as: 'DepartureLocation'
+        },
+        {
+          model: models.Airport,
+          as: 'ArrivalLocation'
+        }
+      ]
+    });
 
-    // Get airport details
-    const departureAirport = await Airport.findByPk(booking.FlightSchedule?.departure_airport_id);
-    const arrivalAirport = await Airport.findByPk(booking.FlightSchedule?.arrival_airport_id);
+    const isHelicopterBooking = !!helicopterSchedule;
 
+    let ticketData;
 
-    // Get flight information
-    const flight = booking.FlightSchedule?.Flight;
-    const flightNumber = flight?.flight_number || `FL${booking.FlightSchedule?.flight_id || booking.schedule_id || '001'}`;
+    if (isHelicopterBooking) {
+      // Handle helicopter booking
+      const departureHelipad = helicopterSchedule.DepartureLocation;
+      const arrivalHelipad = helicopterSchedule.ArrivalLocation;
+      const helicopter = helicopterSchedule.Helicopter;
+      const helicopterNumber = helicopter?.helicopter_number || `HC${booking.schedule_id || '001'}`;
 
-    // Get seat information
-    const bookedSeats = booking.BookedSeats || [];
-    const seatLabels = bookedSeats.map(seat => seat.seat_label).join(', ') || 'Not Assigned';
+      // Get seat information
+      const bookedSeats = booking.BookedSeats || [];
+      const seatLabels = bookedSeats.map(seat => seat.seat_label).join(', ') || 'Not Assigned';
 
-    // Format the ticket data with real booking information
-    const ticketData = {
-      booking: {
-        id: booking.id,
-        pnr: booking.pnr,
-        bookingNo: booking.bookingNo,
-        bookDate: booking.bookDate,
-        totalFare: parseFloat(booking.totalFare),
-        paymentStatus: booking.paymentStatus,
-        bookingStatus: booking.bookingStatus,
-        noOfPassengers: booking.noOfPassengers,
-        contact_no: booking.contact_no,
-        email_id: booking.email_id,
-        transactionId: booking.transactionId,
-        paymentId: booking.paymentId,
-        discount: booking.discount
-      },
-      flight: {
-        id: booking.FlightSchedule?.flight_id || booking.schedule_id || 'FL001',
-        flightNumber: flightNumber,
-        departure: departureAirport?.airport_name || departureAirport?.city || 'Unknown Airport',
-        arrival: arrivalAirport?.airport_name || arrivalAirport?.city || 'Unknown Airport',
-        departureCode: departureAirport?.airport_code || 'UNK',
-        arrivalCode: arrivalAirport?.airport_code || 'UNK',
-        departureTime: booking.FlightSchedule?.departure_time || '00:00:00',
-        arrivalTime: booking.FlightSchedule?.arrival_time || '00:00:00',
-        selectedDate: booking.bookDate,
-        totalPrice: parseFloat(booking.totalFare),
-        price: booking.FlightSchedule?.price ? parseFloat(booking.FlightSchedule.price) : parseFloat(booking.totalFare)
-      },
-      passengers: booking.Passengers?.map((passenger, index) => ({
-        id: passenger.id,
-        name: passenger.name,
-        fullName: passenger.name,
-        title: passenger.title || 'Mr',
-        age: passenger.age || '25', // Use actual age or default
-        dateOfBirth: passenger.dob,
-        type: passenger.type || 'Adult',
-        email: booking.email_id,
-        phone: booking.contact_no,
-        seat: bookedSeats[index]?.seat_label || 'Not Assigned'
-      })) || [],
-      seats: {
-        labels: seatLabels,
-        count: bookedSeats.length,
-        details: bookedSeats.map(seat => ({
-          label: seat.seat_label,
-          id: seat.id
-        }))
-      },
-      payment: booking.Payments?.[0] ? {
-        id: booking.Payments[0].id,
-        amount: parseFloat(booking.Payments[0].amount || booking.totalFare),
-        status: booking.Payments[0].status || booking.paymentStatus,
-        paymentMethod: booking.Payments[0].payment_method || booking.pay_mode || 'Online',
-        transactionId: booking.Payments[0].transaction_id || booking.transactionId
-      } : {
-        amount: parseFloat(booking.totalFare),
-        status: booking.paymentStatus,
-        paymentMethod: booking.pay_mode || 'Online',
-        transactionId: booking.transactionId
-      }
-    };
+      ticketData = {
+        booking: {
+          id: booking.id,
+          pnr: booking.pnr,
+          bookingNo: booking.bookingNo,
+          bookDate: booking.bookDate,
+          totalFare: parseFloat(booking.totalFare),
+          paymentStatus: booking.paymentStatus,
+          bookingStatus: booking.bookingStatus,
+          noOfPassengers: booking.noOfPassengers,
+          contact_no: booking.contact_no,
+          email_id: booking.email_id,
+          transactionId: booking.transactionId,
+          paymentId: booking.paymentId,
+          discount: booking.discount
+        },
+        flight: {
+          id: booking.schedule_id,
+          flightNumber: helicopterNumber,
+          helicopterNumber: helicopterNumber,
+          departure: departureHelipad?.city || 'Unknown Location',
+          arrival: arrivalHelipad?.city || 'Unknown Location',
+          departureCode: departureHelipad?.airport_code || 'UNK',
+          arrivalCode: arrivalHelipad?.airport_code || 'UNK',
+          departureTime: helicopterSchedule?.departure_time || '00:00:00',
+          arrivalTime: helicopterSchedule?.arrival_time || '00:00:00',
+          selectedDate: booking.bookDate,
+          totalPrice: parseFloat(booking.totalFare),
+          price: helicopterSchedule?.price ? parseFloat(helicopterSchedule.price) : parseFloat(booking.totalFare),
+          bookingType: 'helicopter'
+        },
+        passengers: booking.Passengers?.map((passenger, index) => ({
+          id: passenger.id,
+          name: passenger.name,
+          fullName: passenger.name,
+          title: passenger.title || 'Mr',
+          age: passenger.age || '25',
+          dateOfBirth: passenger.dob,
+          type: passenger.type || 'Adult',
+          email: booking.email_id,
+          phone: booking.contact_no,
+          seat: bookedSeats[index]?.seat_label || 'Not Assigned'
+        })) || [],
+        seats: {
+          labels: seatLabels,
+          count: bookedSeats.length,
+          details: bookedSeats.map(seat => ({
+            label: seat.seat_label,
+            id: seat.id
+          }))
+        },
+        payment: booking.Payments?.[0] ? {
+          id: booking.Payments[0].id,
+          amount: parseFloat(booking.Payments[0].amount || booking.totalFare),
+          status: booking.Payments[0].status || booking.paymentStatus,
+          paymentMethod: booking.Payments[0].payment_method || booking.pay_mode || 'Online',
+          transactionId: booking.Payments[0].transaction_id || booking.transactionId
+        } : {
+          amount: parseFloat(booking.totalFare),
+          status: booking.paymentStatus,
+          paymentMethod: booking.pay_mode || 'Online',
+          transactionId: booking.transactionId
+        }
+      };
+    } else {
+      // Handle flight booking (original code)
+      const departureAirport = await Airport.findByPk(booking.FlightSchedule?.departure_airport_id);
+      const arrivalAirport = await Airport.findByPk(booking.FlightSchedule?.arrival_airport_id);
+
+      const flight = booking.FlightSchedule?.Flight;
+      const flightNumber = flight?.flight_number || `FL${booking.FlightSchedule?.flight_id || booking.schedule_id || '001'}`;
+
+      // Get seat information
+      const bookedSeats = booking.BookedSeats || [];
+      const seatLabels = bookedSeats.map(seat => seat.seat_label).join(', ') || 'Not Assigned';
+
+      ticketData = {
+        booking: {
+          id: booking.id,
+          pnr: booking.pnr,
+          bookingNo: booking.bookingNo,
+          bookDate: booking.bookDate,
+          totalFare: parseFloat(booking.totalFare),
+          paymentStatus: booking.paymentStatus,
+          bookingStatus: booking.bookingStatus,
+          noOfPassengers: booking.noOfPassengers,
+          contact_no: booking.contact_no,
+          email_id: booking.email_id,
+          transactionId: booking.transactionId,
+          paymentId: booking.paymentId,
+          discount: booking.discount
+        },
+        flight: {
+          id: booking.FlightSchedule?.flight_id || booking.schedule_id || 'FL001',
+          flightNumber: flightNumber,
+          departure: departureAirport?.airport_name || departureAirport?.city || 'Unknown Airport',
+          arrival: arrivalAirport?.airport_name || arrivalAirport?.city || 'Unknown Airport',
+          departureCode: departureAirport?.airport_code || 'UNK',
+          arrivalCode: arrivalAirport?.airport_code || 'UNK',
+          departureTime: booking.FlightSchedule?.departure_time || '00:00:00',
+          arrivalTime: booking.FlightSchedule?.arrival_time || '00:00:00',
+          selectedDate: booking.bookDate,
+          totalPrice: parseFloat(booking.totalFare),
+          price: booking.FlightSchedule?.price ? parseFloat(booking.FlightSchedule.price) : parseFloat(booking.totalFare),
+          bookingType: 'flight'
+        },
+        passengers: booking.Passengers?.map((passenger, index) => ({
+          id: passenger.id,
+          name: passenger.name,
+          fullName: passenger.name,
+          title: passenger.title || 'Mr',
+          age: passenger.age || '25',
+          dateOfBirth: passenger.dob,
+          type: passenger.type || 'Adult',
+          email: booking.email_id,
+          phone: booking.contact_no,
+          seat: bookedSeats[index]?.seat_label || 'Not Assigned'
+        })) || [],
+        seats: {
+          labels: seatLabels,
+          count: bookedSeats.length,
+          details: bookedSeats.map(seat => ({
+            label: seat.seat_label,
+            id: seat.id
+          }))
+        },
+        payment: booking.Payments?.[0] ? {
+          id: booking.Payments[0].id,
+          amount: parseFloat(booking.Payments[0].amount || booking.totalFare),
+          status: booking.Payments[0].status || booking.paymentStatus,
+          paymentMethod: booking.Payments[0].payment_method || booking.pay_mode || 'Online',
+          transactionId: booking.Payments[0].transaction_id || booking.transactionId
+        } : {
+          amount: parseFloat(booking.totalFare),
+          status: booking.paymentStatus,
+          paymentMethod: booking.pay_mode || 'Online',
+          transactionId: booking.transactionId
+        }
+      };
+    }
 
     res.json({
       success: true,
@@ -428,6 +525,7 @@ router.get('/get-ticket', async (req, res) => {
     });
 
   } catch (error) {
+    console.error('Get ticket error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',
