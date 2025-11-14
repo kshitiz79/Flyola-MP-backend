@@ -20,3 +20,13 @@ const sequelize = new Sequelize(
 sequelize.authenticate()
 
 module.exports = sequelize;
+
+
+
+
+
+
+// DB_USER=root
+// DB_PASSWORD=Flyola_mysql_pass_123456
+// DB_NAME=mydatabase_name_dev
+// JWT_SECRET=dhjwbkhnlmjnwdehbk

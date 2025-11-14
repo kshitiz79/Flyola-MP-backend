@@ -30,12 +30,12 @@ async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, user
     transaction,
   });
   
-  // Get held seats (if SeatHold table exists)
+  // Get held seats (if HelicopterSeatHold table exists)
   const now = new Date();
   let heldSeatsRows = [];
   try {
     if (userId) {
-      heldSeatsRows = await models.SeatHold.findAll({
+      heldSeatsRows = await models.HelicopterSeatHold.findAll({
         where: {
           schedule_id: schedule_id,
           bookDate,
@@ -46,7 +46,7 @@ async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, user
         transaction,
       });
     } else {
-      heldSeatsRows = await models.SeatHold.findAll({
+      heldSeatsRows = await models.HelicopterSeatHold.findAll({
         where: {
           schedule_id: schedule_id,
           bookDate,
@@ -57,7 +57,7 @@ async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, user
       });
     }
   } catch (error) {
-    // SeatHold table might not exist, ignore
+    // HelicopterSeatHold table might not exist, ignore
   }
   
   const bookedSeats = new Set(bookedSeatsRows.map((row) => row.seat_label));

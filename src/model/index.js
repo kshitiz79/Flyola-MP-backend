@@ -20,6 +20,7 @@ const models = {
   Helipad: require('./helipad')(sequelize, Sequelize.DataTypes),
   Helicopter: require('./helicopter')(sequelize, Sequelize.DataTypes),
   HelicopterSchedule: require('./helicopterSchedule')(sequelize, Sequelize.DataTypes),
+  HelicopterSeatHold: require('./helicopterSeatHold'),
 
   sequelize,
   Sequelize,
@@ -46,5 +47,6 @@ models.Booking.belongsTo(models.Agent, { foreignKey: 'agentId', onDelete: 'SET N
 models.Booking.hasMany(models.BookedSeat, { foreignKey: 'booking_id' });
 models.Booking.hasMany(models.Refund, { foreignKey: 'booking_id' });
 models.SeatHold.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id' });
+models.HelicopterSeatHold.belongsTo(models.HelicopterSchedule, { foreignKey: 'schedule_id' });
 
 module.exports = models;
