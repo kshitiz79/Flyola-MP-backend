@@ -136,25 +136,25 @@ GET /helicopter-schedules/price-by-day/:id
 ### Get Current Month Prices
 
 ```bash
-curl -X GET "http://localhost:4000/helicopter-schedules/price-by-day/1"
+curl -X GET "http://localhost:4000 /helicopter-schedules/price-by-day/1"
 ```
 
 ### Get Specific Month Prices
 
 ```bash
-curl -X GET "http://localhost:4000/helicopter-schedules/price-by-day/1?month=2025-12"
+curl -X GET "http://localhost:4000 /helicopter-schedules/price-by-day/1?month=2025-12"
 ```
 
 ### Get Prices from Specific Start Date
 
 ```bash
-curl -X GET "http://localhost:4000/helicopter-schedules/price-by-day/1?start_date=2025-11-15"
+curl -X GET "http://localhost:4000 /helicopter-schedules/price-by-day/1?start_date=2025-11-15"
 ```
 
 ### Combine Month and Start Date
 
 ```bash
-curl -X GET "http://localhost:4000/helicopter-schedules/price-by-day/1?month=2025-11&start_date=2025-11-11"
+curl -X GET "http://localhost:4000 /helicopter-schedules/price-by-day/1?month=2025-11&start_date=2025-11-11"
 ```
 
 ---

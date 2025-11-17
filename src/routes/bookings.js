@@ -19,6 +19,7 @@ router.get('/', bookingController.getBookings);
 router.use(authenticate());
 
 router.post('/complete-booking', bookingController.completeBooking);
+router.post('/complete-booking-discount', bookingController.completeBookingWithDiscount);
 router.get('/summary', bookingController.getBookingSummary);
 router.get('/my', bookingController.getUserBookings);
 router.get('/:id(\\d+)', bookingController.getBookingById);

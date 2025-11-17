@@ -67,6 +67,7 @@ app.use('/billings', require('./src/routes/billings'));
 app.use('/payments', require('./src/routes/payments'));
 app.use('/agents', require('./src/routes/agent'));
 app.use('/bookings', require('./src/routes/bookings')); 
+app.use('/coupons', require('./src/routes/coupons'));
 app.use('/passenger', require('./src/routes/passengerRoutes'));
 app.use('/flights', require('./src/routes/flightRoutes'));
 app.use('/api/joyride-slots', require('./src/routes/joyRide'));
@@ -74,12 +75,12 @@ app.use('/users', require('./src/routes/users'));
 app.use('/booked-seat', require('./src/routes/seatRoutes'));
 app.use('/flight-schedules', require('./src/routes/flightScheduleRoutes'));
 app.use('/airport', require('./src/routes/airport'));
-app.use('/coupons', require('./src/routes/coupans'));
-app.use('/coupans', require('./src/routes/coupans')); // Add alternative spelling for frontend compatibility
+
+
 app.use('/tickets', require('./src/routes/ticketRoutes'));
 app.use('/cancellation', require('./src/routes/cancellation'));
 app.use('/support', require('./src/routes/support'));
-// Helicopter routes
+
 app.use('/helipads', require('./src/routes/helipads'));
 app.use('/helicopters', require('./src/routes/helicopters'));
 app.use('/helicopter-schedules', require('./src/routes/helicopterSchedules'));
