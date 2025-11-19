@@ -17,7 +17,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'airports',
+        model: 'helipads',
         key: 'id'
       }
     },
@@ -25,7 +25,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'airports',
+        model: 'helipads',
         key: 'id'
       }
     },
@@ -70,11 +70,11 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'helicopter_id',
       as: 'Helicopter'
     });
-    HelicopterSchedule.belongsTo(models.Airport, {
+    HelicopterSchedule.belongsTo(models.Helipad, {
       foreignKey: 'departure_helipad_id',
       as: 'DepartureLocation'
     });
-    HelicopterSchedule.belongsTo(models.Airport, {
+    HelicopterSchedule.belongsTo(models.Helipad, {
       foreignKey: 'arrival_helipad_id',
       as: 'ArrivalLocation'
     });
