@@ -160,8 +160,11 @@ async function completeBooking(req, res) {
         throw new Error('Invalid agent ID for agent booking');
       }
 
-      // Store the agentId in the booking
-      booking.agentId = payment.user_id;
+      // Find the corresponding agent record in the agents table
+      const agentRecord = await models.Agent.findOne({ where: { agentId: agent.username } });
+      if (agentRecord) {
+        booking.agentId = agentRecord.id; // Use the agent table ID, not user ID
+      }
 
       payment.payment_status = 'SUCCESS';
       payment.payment_id = `AGENT_${Date.now()}`;
@@ -203,13 +206,13 @@ async function completeBooking(req, res) {
       }
     }
 
-    // Create booking with agentId
+    // Create booking with agentId (only if it was set by AGENT payment mode)
     const newBooking = await models.Booking.create(
       {
         ...booking,
         bookingStatus: 'CONFIRMED',
         paymentStatus: 'SUCCESS',
-        agentId: booking.agentId, // Link the agent who made the booking
+        agentId: booking.agentId || null, // Link the agent who made the booking, or null for regular users
       },
       { transaction }
     );
@@ -1088,11 +1091,38 @@ async function getUserBookings(req, res) {
         const userBookings = await models.Booking.findAll({
             where: { bookedUserId: userId },
             include: [
-                { model: models.FlightSchedule, required: false },
+                { 
+                    model: models.FlightSchedule, 
+                    required: false,
+                    include: [
+                        { model: models.Flight, required: false }
+                    ]
+                },
+                {
+                    model: models.HelicopterSchedule,
+                    required: false,
+                    include: [
+                        { 
+                            model: models.Helicopter, 
+                            required: false, 
+                            as: 'Helicopter' 
+                        },
+                        {
+                            model: models.Helipad,
+                            required: false,
+                            as: 'DepartureLocation'
+                        },
+                        {
+                            model: models.Helipad,
+                            required: false,
+                            as: 'ArrivalLocation'
+                        }
+                    ]
+                },
                 { model: models.Passenger, required: false },
                 { model: models.BookedSeat, attributes: ['seat_label'], required: false },
                 { model: models.Payment, as: 'Payments', required: false },
-                { model: models.Agent, required: false }, // Include Agent details
+                { model: models.Agent, required: false },
             ],
             order: [
                 ['bookDate', 'DESC']
@@ -1102,17 +1132,39 @@ async function getUserBookings(req, res) {
         const bookingsWithExtras = await Promise.all(
             userBookings.map(async(b) => {
                 const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
-                return {
+                
+                // Determine if this is a helicopter or flight booking
+                const isHelicopterBooking = !!b.HelicopterSchedule;
+                
+                // Build response with appropriate data
+                const bookingData = {
                     ...b.toJSON(),
-                    seatLabels: b.BookedSeats.map((s) => s.seat_label),
+                    seatLabels: b.BookedSeats?.map((s) => s.seat_label) || [],
                     billing: billing ? billing.toJSON() : null,
+                    bookingType: isHelicopterBooking ? 'helicopter' : 'flight',
                 };
+
+                // Add helicopter-specific data if applicable
+                if (isHelicopterBooking && b.HelicopterSchedule) {
+                    bookingData.helicopterNumber = b.HelicopterSchedule.Helicopter?.helicopter_number || 'N/A';
+                    bookingData.departureHelipad = b.HelicopterSchedule.DepartureLocation?.helipad_name || 'N/A';
+                    bookingData.arrivalHelipad = b.HelicopterSchedule.ArrivalLocation?.helipad_name || 'N/A';
+                    bookingData.departureTime = b.HelicopterSchedule.departure_time || 'N/A';
+                    bookingData.arrivalTime = b.HelicopterSchedule.arrival_time || 'N/A';
+                }
+
+                // Add flight-specific data if applicable
+                if (!isHelicopterBooking && b.FlightSchedule) {
+                    bookingData.flightNumber = b.FlightSchedule.Flight?.flight_number || `FL${b.FlightSchedule.flight_id || b.schedule_id || '001'}`;
+                }
+
+                return bookingData;
             })
         );
 
         return res.status(200).json(bookingsWithExtras);
     } catch (err) {
-        return res.status(500).json({ error: 'Failed to fetch your bookings' });
+        return res.status(500).json({ error: 'Failed to fetch your bookings: ' + err.message });
     }
 }
 
@@ -1138,6 +1190,13 @@ async function getBookings(req, res) {
                     required: false,
                     include: [
                         { model: models.Flight, required: false }
+                    ]
+                },
+                {
+                    model: models.HelicopterSchedule,
+                    required: false,
+                    include: [
+                        { model: models.Helicopter, required: false, as: 'Helicopter' }
                     ]
                 },
                 { model: models.Payment, as: 'Payments', required: false },

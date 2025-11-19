@@ -113,6 +113,7 @@ bookingStatus: {
 
 Booking.associate = (models) => {
   Booking.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id', targetKey: 'id', onDelete: 'SET NULL' });
+  Booking.belongsTo(models.HelicopterSchedule, { foreignKey: 'schedule_id', targetKey: 'id', onDelete: 'SET NULL' });
   Booking.hasMany(models.Payment, { foreignKey: 'booking_id', sourceKey: 'id', as: 'Payments' });
   Booking.belongsTo(models.User, { foreignKey: 'bookedUserId', targetKey: 'id' });
   Booking.hasMany(models.Passenger, { foreignKey: 'bookingId', sourceKey: 'id' });

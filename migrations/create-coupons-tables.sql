@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS coupons (
   INDEX idx_valid_dates (valid_from, valid_until)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Create coupon_usage table
+
 CREATE TABLE IF NOT EXISTS coupon_usage (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   coupon_id BIGINT UNSIGNED NOT NULL COMMENT 'Reference to coupon',
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS coupon_usage (
   FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Insert sample coupons
+
 INSERT INTO coupons (code, discount_type, discount_value, max_discount, min_booking_amount, valid_from, valid_until, status, description) VALUES
 ('FLYOLA50', 'percentage', 10.00, 500.00, 1000.00, NOW(), DATE_ADD(NOW(), INTERVAL 6 MONTH), 'active', '10% off on bookings above ₹1000'),
 ('WELCOME100', 'fixed', 100.00, NULL, 500.00, NOW(), DATE_ADD(NOW(), INTERVAL 3 MONTH), 'active', 'Flat ₹100 off on first booking'),
