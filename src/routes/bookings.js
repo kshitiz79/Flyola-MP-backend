@@ -14,6 +14,7 @@ router.post('/irctc/cancel/:id(\\d+)', bookingController.cancelIrctcBooking);
 router.post('/irctc/reschedule/:id(\\d+)', bookingController.rescheduleIrctcBooking);
 router.post('/helicopter/cancel/:id(\\d+)', bookingController.cancelHelicopterBooking);
 router.post('/helicopter/reschedule/:id(\\d+)', bookingController.rescheduleHelicopterBooking);
+router.get('/helicopter-bookings', bookingController.getHelicopterBookings);
 router.get('/', bookingController.getBookings);
 
 router.use(authenticate());

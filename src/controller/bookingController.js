@@ -1262,6 +1262,107 @@ async function getBookings(req, res) {
     }
 }
 
+async function getHelicopterBookings(req, res) {
+    try {
+        const { status } = req.query;
+        const where = {};
+        if (status && status !== 'All Booking') {
+            where.bookingStatus = status.toUpperCase();
+        }
+
+        // Fetch all bookings with helicopter schedules
+        const bookings = await models.Booking.findAll({
+            where,
+            include: [
+                { model: models.BookedSeat, attributes: ['seat_label'], required: false },
+                { model: models.Passenger, required: false },
+                {
+                    model: models.HelicopterSchedule,
+                    required: true, // Only get bookings that have helicopter schedules
+                    include: [
+                        { 
+                            model: models.Helicopter, 
+                            required: false, 
+                            as: 'Helicopter' 
+                        },
+                        {
+                            model: models.Helipad,
+                            required: false,
+                            as: 'DepartureLocation'
+                        },
+                        {
+                            model: models.Helipad,
+                            required: false,
+                            as: 'ArrivalLocation'
+                        }
+                    ]
+                },
+                { model: models.Payment, as: 'Payments', required: false },
+                { model: models.Agent, required: false },
+            ],
+            order: [
+                ['created_at', 'DESC']
+            ],
+        });
+
+        const withBilling = await Promise.all(
+            bookings.map(async(b) => {
+                try {
+                    const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
+                    
+                    const seatLabels = b.BookedSeats?.map((s) => s.seat_label).join(", ") || "N/A";
+                    const passengerNames = b.Passengers?.map((p) => p.name).join(", ") || "N/A";
+                    const paymentMode = b.Payments?.[0]?.payment_mode || b.pay_mode || "N/A";
+                    const transactionId = b.Payments?.[0]?.transaction_id || b.transactionId || "N/A";
+                    const agentId = b.Agent?.agentId || "FLYOLA";
+                    
+                    return {
+                        ...b.toJSON(),
+                        seatLabels: seatLabels,
+                        billing: billing ? billing.toJSON() : null,
+                        booked_seat: seatLabels,
+                        passengerNames: passengerNames,
+                        billingName: billing?.billing_name || "N/A",
+                        paymentMode: paymentMode,
+                        transactionId: transactionId,
+                        agentId: agentId,
+                        helicopterNumber: b.HelicopterSchedule?.Helicopter?.helicopter_number || "N/A",
+                        departureHelipad: b.HelicopterSchedule?.DepartureLocation?.helipad_name || "N/A",
+                        arrivalHelipad: b.HelicopterSchedule?.ArrivalLocation?.helipad_name || "N/A",
+                        departureTime: b.HelicopterSchedule?.departure_time || "N/A",
+                        arrivalTime: b.HelicopterSchedule?.arrival_time || "N/A",
+                        userRole: "3",
+                        bookingType: 'helicopter'
+                    };
+                } catch (billingErr) {
+                    return {
+                        ...b.toJSON(),
+                        seatLabels: b.BookedSeats?.map((s) => s.seat_label).join(", ") || "N/A",
+                        billing: null,
+                        booked_seat: b.BookedSeats?.map((s) => s.seat_label).join(", ") || "N/A",
+                        passengerNames: b.Passengers?.map((p) => p.name).join(", ") || "N/A",
+                        billingName: "N/A",
+                        paymentMode: b.Payments?.[0]?.payment_mode || b.pay_mode || "N/A",
+                        transactionId: b.Payments?.[0]?.transaction_id || b.transactionId || "N/A",
+                        agentId: b.Agent?.agentId || "FLYOLA",
+                        helicopterNumber: "N/A",
+                        departureHelipad: "N/A",
+                        arrivalHelipad: "N/A",
+                        departureTime: "N/A",
+                        arrivalTime: "N/A",
+                        userRole: "3",
+                        bookingType: 'helicopter'
+                    };
+                }
+            })
+        );
+
+        res.json(withBilling);
+    } catch (err) {
+        res.status(500).json({ error: `Failed to fetch helicopter bookings: ${err.message}` });
+    }
+}
+
 async function getBookingById(req, res) {
     const { id } = req.params;
     const { pnr, bookingNo } = req.query;
@@ -2042,6 +2143,7 @@ module.exports = {
     bookHelicopterSeatsWithoutPayment,
     generatePNR: generatePNRController,
     getBookings,
+    getHelicopterBookings,
     getBookingById,
     getIrctcBookings,
     getUserBookings,
