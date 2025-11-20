@@ -1,7 +1,7 @@
 const fetch = require('node-fetch');
 
 async function testBookings() {
-  const baseUrl = 'https://app.jetserveaviation.com   ';
+  const baseUrl = 'https://api.jetserveaviation.com    ';
   
   try {
     
