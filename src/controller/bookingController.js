@@ -794,11 +794,17 @@ async function cancelHelicopterBooking(req, res) {
     try {
         t = await models.sequelize.transaction();
 
-        // Fetch the booking with associated models
-        const booking = await models.Booking.findByPk(id, {
+        // Fetch the helicopter booking from helicopter_bookings table
+        const booking = await models.HelicopterBooking.findByPk(id, {
             include: [
-                { model: models.HelicopterSchedule, required: false },
-                { model: models.BookedSeat, required: true },
+                { 
+                    model: models.HelicopterSchedule, 
+                    required: true,
+                    include: [
+                        { model: models.Helicopter, as: 'Helicopter' }
+                    ]
+                },
+                { model: models.HelicopterBookedSeat, as: 'BookedSeats', required: true },
                 { model: models.Agent, required: true },
             ],
             transaction: t,
@@ -934,10 +940,16 @@ async function rescheduleHelicopterBooking(req, res) {
         }
 
         t = await models.sequelize.transaction();
-        const booking = await models.Booking.findByPk(id, {
+        const booking = await models.HelicopterBooking.findByPk(id, {
             include: [
-                { model: models.HelicopterSchedule, required: false },
-                { model: models.BookedSeat, required: true },
+                { 
+                    model: models.HelicopterSchedule, 
+                    required: true,
+                    include: [
+                        { model: models.Helicopter, as: 'Helicopter' }
+                    ]
+                },
+                { model: models.HelicopterBookedSeat, as: 'BookedSeats', required: true },
                 { model: models.Agent, required: true },
             ],
             transaction: t,
@@ -1298,13 +1310,7 @@ async function getBookings(req, res) {
                         { model: models.Flight, required: false }
                     ]
                 },
-                {
-                    model: models.HelicopterSchedule,
-                    required: false,
-                    include: [
-                        { model: models.Helicopter, required: false, as: 'Helicopter' }
-                    ]
-                },
+                // HelicopterSchedule removed - helicopter bookings now in separate helicopter_bookings table
                 { model: models.Payment, as: 'Payments', required: false },
                 { model: models.Agent, required: false },
             ],
