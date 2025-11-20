@@ -7,16 +7,23 @@ module.exports = (sequelize, DataTypes) => {
     },
     helipad_name: {
       type: DataTypes.STRING,
-      allowNull: false
+      allowNull: true
     },
     helipad_code: {
       type: DataTypes.STRING,
-      allowNull: false,
-      unique: true
+      allowNull: true
     },
     city: {
       type: DataTypes.STRING,
       allowNull: false
+    },
+    airport_name: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    airport_code: {
+      type: DataTypes.STRING,
+      allowNull: true
     },
     status: {
       type: DataTypes.INTEGER,
@@ -32,7 +39,7 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: DataTypes.NOW
     }
   }, {
-    tableName: 'helipads',
+    tableName: 'airports', // Use airports table, not helipads
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at'

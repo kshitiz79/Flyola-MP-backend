@@ -21,6 +21,11 @@ const models = {
   Helicopter: require('./helicopter')(sequelize, Sequelize.DataTypes),
   HelicopterSchedule: require('./helicopterSchedule')(sequelize, Sequelize.DataTypes),
   HelicopterSeatHold: require('./helicopterSeatHold'),
+  // Separate helicopter booking tables
+  HelicopterBooking: require('./helicopterBooking'),
+  HelicopterBookedSeat: require('./helicopterBookedSeat'),
+  HelicopterPassenger: require('./helicopterPassenger'),
+  HelicopterPayment: require('./helicopterPayment'),
 
   sequelize,
   Sequelize,

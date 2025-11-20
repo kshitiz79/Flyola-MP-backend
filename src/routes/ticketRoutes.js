@@ -262,79 +262,113 @@ router.get('/get-ticket', async (req, res) => {
     // Get the latest booking or a specific one if ID is provided
     const bookingId = req.query.id;
     const pnr = req.query.pnr;
+    const models = require('../model');
     let booking;
+    let isHelicopterBooking = false;
 
+    // First try to find in helicopter_bookings table
     if (bookingId) {
-      booking = await Booking.findByPk(bookingId, {
+      booking = await models.HelicopterBooking.findByPk(bookingId, {
         include: [
+          { model: models.HelicopterPassenger, as: 'Passengers' },
           {
-            model: Passenger
-          },
-          {
-            model: FlightSchedule,
+            model: models.HelicopterSchedule,
             include: [
-              {
-                model: Flight
-              }
+              { model: models.Helicopter, as: 'Helicopter' },
+              { model: models.Helipad, as: 'DepartureLocation' },
+              { model: models.Helipad, as: 'ArrivalLocation' }
             ]
           },
-          {
-            model: Payment,
-            as: 'Payments'
-          },
-          {
-            model: BookedSeat
-          }
+          { model: models.HelicopterPayment, as: 'Payments' },
+          { model: models.HelicopterBookedSeat, as: 'BookedSeats' }
         ]
       });
+      if (booking) isHelicopterBooking = true;
     } else if (pnr) {
-      booking = await Booking.findOne({
+      booking = await models.HelicopterBooking.findOne({
         where: { pnr: pnr },
         include: [
+          { model: models.HelicopterPassenger, as: 'Passengers' },
           {
-            model: Passenger
-          },
-          {
-            model: FlightSchedule,
+            model: models.HelicopterSchedule,
             include: [
-              {
-                model: Flight
-              }
+              { model: models.Helicopter, as: 'Helicopter' },
+              { model: models.Helipad, as: 'DepartureLocation' },
+              { model: models.Helipad, as: 'ArrivalLocation' }
             ]
           },
-          {
-            model: Payment,
-            as: 'Payments'
-          },
-          {
-            model: BookedSeat
-          }
+          { model: models.HelicopterPayment, as: 'Payments' },
+          { model: models.HelicopterBookedSeat, as: 'BookedSeats' }
         ]
       });
-    } else {
-      booking = await Booking.findOne({
-        include: [
-          {
-            model: Passenger
-          },
-          {
-            model: FlightSchedule,
-            include: [
-              {
-                model: Flight
-              }
-            ]
-          },
-          {
-            model: Payment,
-            as: 'Payments'
-          },
-          {
-            model: BookedSeat
-          }
-        ],
-        order: [['id', 'DESC']]
-      });
+      if (booking) isHelicopterBooking = true;
+    }
+
+    // If not found in helicopter_bookings, try regular bookings table
+    if (!booking) {
+      if (bookingId) {
+        booking = await Booking.findByPk(bookingId, {
+          include: [
+            { model: Passenger },
+            {
+              model: FlightSchedule,
+              include: [{ model: Flight }]
+            },
+            { model: Payment, as: 'Payments' },
+            { model: BookedSeat }
+          ]
+        });
+      } else if (pnr) {
+        booking = await Booking.findOne({
+          where: { pnr: pnr },
+          include: [
+            { model: Passenger },
+            {
+              model: FlightSchedule,
+              include: [{ model: Flight }]
+            },
+            { model: Payment, as: 'Payments' },
+            { model: BookedSeat }
+          ]
+        });
+      } else {
+        // Get latest from either table
+        const latestHelicopter = await models.HelicopterBooking.findOne({
+          include: [
+            { model: models.HelicopterPassenger, as: 'Passengers' },
+            {
+              model: models.HelicopterSchedule,
+              include: [
+                { model: models.Helicopter, as: 'Helicopter' },
+                { model: models.Helipad, as: 'DepartureLocation' },
+                { model: models.Helipad, as: 'ArrivalLocation' }
+              ]
+            },
+            { model: models.HelicopterPayment, as: 'Payments' },
+            { model: models.HelicopterBookedSeat, as: 'BookedSeats' }
+          ],
+          order: [['id', 'DESC']]
+        });
+
+        booking = await Booking.findOne({
+          include: [
+            { model: Passenger },
+            {
+              model: FlightSchedule,
+              include: [{ model: Flight }]
+            },
+            { model: Payment, as: 'Payments' },
+            { model: BookedSeat }
+          ],
+          order: [['id', 'DESC']]
+        });
+
+        // Use the latest one
+        if (latestHelicopter && (!booking || latestHelicopter.id > booking.id)) {
+          booking = latestHelicopter;
+          isHelicopterBooking = true;
+        }
+      }
     }
 
     if (!booking) {
@@ -344,35 +378,15 @@ router.get('/get-ticket', async (req, res) => {
       });
     }
 
-    // Check if this is a helicopter booking by checking if schedule exists in helicopter_schedules
-    const models = require('../model');
-    const helicopterSchedule = await models.HelicopterSchedule.findByPk(booking.schedule_id, {
-      include: [
-        { 
-          model: models.Helicopter, 
-          as: 'Helicopter' 
-        },
-        {
-          model: models.Airport,
-          as: 'DepartureLocation'
-        },
-        {
-          model: models.Airport,
-          as: 'ArrivalLocation'
-        }
-      ]
-    });
-
-    const isHelicopterBooking = !!helicopterSchedule;
-
     let ticketData;
 
     if (isHelicopterBooking) {
-      // Handle helicopter booking
-      const departureHelipad = helicopterSchedule.DepartureLocation;
-      const arrivalHelipad = helicopterSchedule.ArrivalLocation;
-      const helicopter = helicopterSchedule.Helicopter;
-      const helicopterNumber = helicopter?.helicopter_number || `HC${booking.schedule_id || '001'}`;
+      // Handle helicopter booking - data already loaded with includes
+      const helicopterSchedule = booking.HelicopterSchedule;
+      const departureHelipad = helicopterSchedule?.DepartureLocation;
+      const arrivalHelipad = helicopterSchedule?.ArrivalLocation;
+      const helicopter = helicopterSchedule?.Helicopter;
+      const helicopterNumber = helicopter?.helicopter_number || `HC${booking.helicopter_schedule_id || '001'}`;
 
       // Get seat information
       const bookedSeats = booking.BookedSeats || [];
@@ -395,13 +409,13 @@ router.get('/get-ticket', async (req, res) => {
           discount: booking.discount
         },
         flight: {
-          id: booking.schedule_id,
+          id: booking.helicopter_schedule_id,
           flightNumber: helicopterNumber,
           helicopterNumber: helicopterNumber,
-          departure: departureHelipad?.city || 'Unknown Location',
-          arrival: arrivalHelipad?.city || 'Unknown Location',
-          departureCode: departureHelipad?.airport_code || 'UNK',
-          arrivalCode: arrivalHelipad?.airport_code || 'UNK',
+          departure: departureHelipad?.helipad_name || departureHelipad?.city || 'Unknown Location',
+          arrival: arrivalHelipad?.helipad_name || arrivalHelipad?.city || 'Unknown Location',
+          departureCode: departureHelipad?.helipad_code || departureHelipad?.airport_code || 'UNK',
+          arrivalCode: arrivalHelipad?.helipad_code || arrivalHelipad?.airport_code || 'UNK',
           departureTime: helicopterSchedule?.departure_time || '00:00:00',
           arrivalTime: helicopterSchedule?.arrival_time || '00:00:00',
           selectedDate: booking.bookDate,
