@@ -31,7 +31,7 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With');
   res.header('Access-Control-Allow-Credentials', 'true');
-  
+
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
@@ -66,7 +66,7 @@ app.use('/reviews', require('./src/routes/reviews'));
 app.use('/billings', require('./src/routes/billings'));
 app.use('/payments', require('./src/routes/payments'));
 app.use('/agents', require('./src/routes/agent'));
-app.use('/bookings', require('./src/routes/bookings')); 
+app.use('/bookings', require('./src/routes/bookings'));
 app.use('/coupons', require('./src/routes/coupons'));
 app.use('/passenger', require('./src/routes/passengerRoutes'));
 app.use('/flights', require('./src/routes/flightRoutes'));
@@ -85,6 +85,8 @@ app.use('/helipads', require('./src/routes/helipads'));
 app.use('/helicopters', require('./src/routes/helicopters'));
 app.use('/helicopter-schedules', require('./src/routes/helicopterSchedules'));
 app.use('/helicopter-seat', require('./src/routes/helicopterSeatRoutes'));
+app.use('/api/admin', require('./src/routes/adminDashboard'));
+
 
 // Error handling middleware
 const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
