@@ -12,9 +12,9 @@ const models = {
   User: require('./user'),
   Passenger: require('./passanger'),
   Agent: require('./Agent'),
-  SeatHold: require('./seatHold'), 
+  SeatHold: require('./seatHold'),
   Joy_Ride_Slot: require('./joyRide'),
-  JoyRideBooking : require('./joyRideBooking'),
+  JoyRideBooking: require('./joyRideBooking'),
   Refund: require('./refund'),
   // Helicopter models
   Helipad: require('./helipad')(sequelize, Sequelize.DataTypes),
@@ -26,6 +26,7 @@ const models = {
   HelicopterBookedSeat: require('./helicopterBookedSeat'),
   HelicopterPassenger: require('./helicopterPassenger'),
   HelicopterPayment: require('./helicopterPayment'),
+  HelicopterRefund: require('./helicopterRefund'),
 
   sequelize,
   Sequelize,

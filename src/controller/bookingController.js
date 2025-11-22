@@ -15,384 +15,384 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 function generatePNR() {
-  const maxAttempts = 10;
-  let attempt = 0;
+    const maxAttempts = 10;
+    let attempt = 0;
 
-  async function tryGenerate() {
-    while (attempt < maxAttempts) {
-      try {
-        let pnr = crypto.randomBytes(6).toString('base64').replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
-        if (pnr.length === 6) {
-          const existing = await models.Booking.findOne({ where: { pnr } });
-          if (!existing) return pnr;
+    async function tryGenerate() {
+        while (attempt < maxAttempts) {
+            try {
+                let pnr = crypto.randomBytes(6).toString('base64').replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
+                if (pnr.length === 6) {
+                    const existing = await models.Booking.findOne({ where: { pnr } });
+                    if (!existing) return pnr;
+                }
+            } catch (cryptoError) {
+                let pnr = uuidv4().replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
+                if (pnr.length === 6) {
+                    const existing = await models.Booking.findOne({ where: { pnr } });
+                    if (!existing) return pnr;
+                }
+            }
+            attempt++;
         }
-      } catch (cryptoError) {
+
         let pnr = uuidv4().replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
-        if (pnr.length === 6) {
-          const existing = await models.Booking.findOne({ where: { pnr } });
-          if (!existing) return pnr;
+        if (pnr.length < 6) {
+            pnr = pnr.padEnd(6, 'X');
         }
-      }
-      attempt++;
+        const existing = await models.Booking.findOne({ where: { pnr } });
+        if (!existing) return pnr;
+
+        throw new Error('Failed to generate unique PNR after multiple attempts');
     }
 
-    let pnr = uuidv4().replace(/[^A-Z0-9]/g, '').slice(0, 6).toUpperCase();
-    if (pnr.length < 6) {
-      pnr = pnr.padEnd(6, 'X');
-    }
-    const existing = await models.Booking.findOne({ where: { pnr } });
-    if (!existing) return pnr;
-
-    throw new Error('Failed to generate unique PNR after multiple attempts');
-  }
-
-  return tryGenerate();
+    return tryGenerate();
 }
 
 async function completeBooking(req, res) {
-  const { bookedSeat, booking, billing, payment, passengers } = req.body;
+    const { bookedSeat, booking, billing, payment, passengers } = req.body;
 
-  // Log incoming payload for debugging
+    // Log incoming payload for debugging
 
-  // Input validation
-  if (!bookedSeat || !booking || !billing || !payment || !Array.isArray(passengers) || !passengers.length) {
-    return res.status(400).json({ error: 'Missing required booking sections: bookedSeat, booking, billing, payment, or passengers' });
-  }
-  if (!dayjs(bookedSeat.bookDate, 'YYYY-MM-DD', true).isValid()) {
-    return res.status(400).json({ error: 'Invalid bookDate format (YYYY-MM-DD)' });
-  }
-  if (!bookedSeat.seat_labels || !Array.isArray(bookedSeat.seat_labels) || bookedSeat.seat_labels.length !== passengers.length) {
-    return res.status(400).json({ error: 'seat_labels must be an array matching the number of passengers' });
-  }
-
-  // Validate booking fields
-  const bookingRequiredFields = ['pnr', 'bookingNo', 'contact_no', 'email_id', 'noOfPassengers', 'bookDate', 'totalFare', 'bookedUserId', 'schedule_id'];
-  const missingBookingFields = bookingRequiredFields.filter(f => !booking[f] && booking[f] !== 0);
-  if (missingBookingFields.length) {
-    return res.status(400).json({ error: `Missing booking fields: ${missingBookingFields.join(', ')}` });
-  }
-
-  // Validate other sections
-  if (!billing.user_id) {
-    return res.status(400).json({ error: 'Missing billing field: user_id' });
-  }
-  const paymentRequiredFields = ['user_id', 'payment_amount', 'payment_status', 'transaction_id', 'payment_mode'];
-  const missingPaymentFields = paymentRequiredFields.filter(f => !payment[f] && payment[f] !== 0);
-  if (missingPaymentFields.length) {
-    return res.status(400).json({ error: `Missing payment fields: ${missingPaymentFields.join(', ')}` });
-  }
-  for (const p of passengers) {
-    if (!p.name || !p.title || !p.type || typeof p.age !== 'number') {
-      return res.status(400).json({ error: 'Missing passenger fields: name, title, type, age' });
+    // Input validation
+    if (!bookedSeat || !booking || !billing || !payment || !Array.isArray(passengers) || !passengers.length) {
+        return res.status(400).json({ error: 'Missing required booking sections: bookedSeat, booking, billing, payment, or passengers' });
     }
-  }
-  if (!['RAZORPAY', 'ADMIN', 'AGENT'].includes(payment.payment_mode)) {
-    return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY, ADMIN, or AGENT' });
-  }
-
-  const totalFare = parseFloat(booking.totalFare);
-  const paymentAmount = parseFloat(payment.payment_amount);
-  if (!Number.isFinite(totalFare) || totalFare <= 0) {
-    return res.status(400).json({ error: 'Total fare must be a positive number' });
-  }
-  if (Math.abs(totalFare - paymentAmount) > 0.01) {
-    return res.status(400).json({ error: 'Total fare does not match payment amount' });
-  }
-
-  let transaction;
-  try {
-    // Validate user
-    const user = await models.User.findByPk(booking.bookedUserId);
-    if (!user) {
-      return res.status(400).json({ error: `Invalid bookedUserId: ${booking.bookedUserId}` });
+    if (!dayjs(bookedSeat.bookDate, 'YYYY-MM-DD', true).isValid()) {
+        return res.status(400).json({ error: 'Invalid bookDate format (YYYY-MM-DD)' });
+    }
+    if (!bookedSeat.seat_labels || !Array.isArray(bookedSeat.seat_labels) || bookedSeat.seat_labels.length !== passengers.length) {
+        return res.status(400).json({ error: 'seat_labels must be an array matching the number of passengers' });
     }
 
-    transaction = await models.sequelize.transaction();
+    // Validate booking fields
+    const bookingRequiredFields = ['pnr', 'bookingNo', 'contact_no', 'email_id', 'noOfPassengers', 'bookDate', 'totalFare', 'bookedUserId', 'schedule_id'];
+    const missingBookingFields = bookingRequiredFields.filter(f => !booking[f] && booking[f] !== 0);
+    if (missingBookingFields.length) {
+        return res.status(400).json({ error: `Missing booking fields: ${missingBookingFields.join(', ')}` });
+    }
 
-    // Authenticate admin for ADMIN mode
-    if (payment.payment_mode === 'ADMIN') {
-      const token = req.headers.authorization?.startsWith('Bearer ')
-        ? req.headers.authorization.split(' ')[1]
-        : req.headers.token || req.cookies?.token;
-
-      if (!token) {
-        throw new Error('Unauthorized: No token provided for admin booking');
-      }
-
-      let decoded;
-      try {
-        decoded = jwt.verify(token, process.env.JWT_SECRET);
-        if (String(decoded.role) !== '1') {
-          throw new Error('Forbidden: Only admins can use ADMIN payment mode');
+    // Validate other sections
+    if (!billing.user_id) {
+        return res.status(400).json({ error: 'Missing billing field: user_id' });
+    }
+    const paymentRequiredFields = ['user_id', 'payment_amount', 'payment_status', 'transaction_id', 'payment_mode'];
+    const missingPaymentFields = paymentRequiredFields.filter(f => !payment[f] && payment[f] !== 0);
+    if (missingPaymentFields.length) {
+        return res.status(400).json({ error: `Missing payment fields: ${missingPaymentFields.join(', ')}` });
+    }
+    for (const p of passengers) {
+        if (!p.name || !p.title || !p.type || typeof p.age !== 'number') {
+            return res.status(400).json({ error: 'Missing passenger fields: name, title, type, age' });
         }
-        if (
-          String(decoded.id) !== String(booking.bookedUserId) ||
-          String(decoded.id) !== String(billing.user_id) ||
-          String(decoded.id) !== String(payment.user_id)
-        ) {
-          throw new Error('User ID mismatch in booking, billing, or payment');
-        }
-      } catch (jwtErr) {
-        throw new Error(`Invalid token: ${jwtErr.message}`);
-      }
-
-      payment.payment_status = 'SUCCESS';
-      payment.payment_id = `ADMIN_${Date.now()}`;
-      payment.order_id = `ADMIN_${Date.now()}`;
-      payment.razorpay_signature = null;
-      payment.message = 'Admin booking (no payment required)';
-    } else if (payment.payment_mode === 'RAZORPAY') {
-      if (!payment.payment_id || !payment.order_id || !payment.razorpay_signature) {
-        throw new Error('Missing Razorpay payment fields: payment_id, order_id, or razorpay_signature');
-      }
-      const isValidSignature = await verifyPayment({
-        order_id: payment.order_id,
-        payment_id: payment.payment_id,
-        signature: payment.razorpay_signature,
-      });
-      if (!isValidSignature) {
-        throw new Error('Invalid Razorpay signature');
-      }
-    } else if (payment.payment_mode === 'AGENT') {
-      // Allow agent to book for users with payment via 'AGENT'
-      const agent = await models.User.findByPk(payment.user_id);
-      if (!agent || agent.role !== 2) {
-        throw new Error('Invalid agent ID for agent booking');
-      }
-
-      // Find the corresponding agent record in the agents table
-      const agentRecord = await models.Agent.findOne({ where: { agentId: agent.username } });
-      if (agentRecord) {
-        booking.agentId = agentRecord.id; // Use the agent table ID, not user ID
-      }
-
-      payment.payment_status = 'SUCCESS';
-      payment.payment_id = `AGENT_${Date.now()}`;
-      payment.order_id = `AGENT_${Date.now()}`;
-      payment.razorpay_signature = null;
-      payment.message = 'Agent booking (no payment required)';
+    }
+    if (!['RAZORPAY', 'ADMIN', 'AGENT'].includes(payment.payment_mode)) {
+        return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY, ADMIN, or AGENT' });
     }
 
-    // Verify seat availability - check if this is a helicopter or flight schedule
-    let availableSeats;
-    let isHelicopterBooking = false;
-    let helicopterSchedule = null;
-    
+    const totalFare = parseFloat(booking.totalFare);
+    const paymentAmount = parseFloat(payment.payment_amount);
+    if (!Number.isFinite(totalFare) || totalFare <= 0) {
+        return res.status(400).json({ error: 'Total fare must be a positive number' });
+    }
+    if (Math.abs(totalFare - paymentAmount) > 0.01) {
+        return res.status(400).json({ error: 'Total fare does not match payment amount' });
+    }
+
+    let transaction;
     try {
-      // First try to find as a helicopter schedule
-      helicopterSchedule = await models.HelicopterSchedule.findByPk(bookedSeat.schedule_id, { transaction });
-      if (helicopterSchedule) {
-        isHelicopterBooking = true;
-        // This is a helicopter booking - use helicopter seat validation
-        const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
-        availableSeats = await getAvailableHelicopterSeats({
-          models,
-          schedule_id: bookedSeat.schedule_id,
-          bookDate: bookedSeat.bookDate,
-          transaction,
+        // Validate user
+        const user = await models.User.findByPk(booking.bookedUserId);
+        if (!user) {
+            return res.status(400).json({ error: `Invalid bookedUserId: ${booking.bookedUserId}` });
+        }
+
+        transaction = await models.sequelize.transaction();
+
+        // Authenticate admin for ADMIN mode
+        if (payment.payment_mode === 'ADMIN') {
+            const token = req.headers.authorization?.startsWith('Bearer ')
+                ? req.headers.authorization.split(' ')[1]
+                : req.headers.token || req.cookies?.token;
+
+            if (!token) {
+                throw new Error('Unauthorized: No token provided for admin booking');
+            }
+
+            let decoded;
+            try {
+                decoded = jwt.verify(token, process.env.JWT_SECRET);
+                if (String(decoded.role) !== '1') {
+                    throw new Error('Forbidden: Only admins can use ADMIN payment mode');
+                }
+                if (
+                    String(decoded.id) !== String(booking.bookedUserId) ||
+                    String(decoded.id) !== String(billing.user_id) ||
+                    String(decoded.id) !== String(payment.user_id)
+                ) {
+                    throw new Error('User ID mismatch in booking, billing, or payment');
+                }
+            } catch (jwtErr) {
+                throw new Error(`Invalid token: ${jwtErr.message}`);
+            }
+
+            payment.payment_status = 'SUCCESS';
+            payment.payment_id = `ADMIN_${Date.now()}`;
+            payment.order_id = `ADMIN_${Date.now()}`;
+            payment.razorpay_signature = null;
+            payment.message = 'Admin booking (no payment required)';
+        } else if (payment.payment_mode === 'RAZORPAY') {
+            if (!payment.payment_id || !payment.order_id || !payment.razorpay_signature) {
+                throw new Error('Missing Razorpay payment fields: payment_id, order_id, or razorpay_signature');
+            }
+            const isValidSignature = await verifyPayment({
+                order_id: payment.order_id,
+                payment_id: payment.payment_id,
+                signature: payment.razorpay_signature,
+            });
+            if (!isValidSignature) {
+                throw new Error('Invalid Razorpay signature');
+            }
+        } else if (payment.payment_mode === 'AGENT') {
+            // Allow agent to book for users with payment via 'AGENT'
+            const agent = await models.User.findByPk(payment.user_id);
+            if (!agent || agent.role !== 2) {
+                throw new Error('Invalid agent ID for agent booking');
+            }
+
+            // Find the corresponding agent record in the agents table
+            const agentRecord = await models.Agent.findOne({ where: { agentId: agent.username } });
+            if (agentRecord) {
+                booking.agentId = agentRecord.id; // Use the agent table ID, not user ID
+            }
+
+            payment.payment_status = 'SUCCESS';
+            payment.payment_id = `AGENT_${Date.now()}`;
+            payment.order_id = `AGENT_${Date.now()}`;
+            payment.razorpay_signature = null;
+            payment.message = 'Agent booking (no payment required)';
+        }
+
+        // Verify seat availability - check if this is a helicopter or flight schedule
+        let availableSeats;
+        let isHelicopterBooking = false;
+        let helicopterSchedule = null;
+
+        try {
+            // First try to find as a helicopter schedule
+            helicopterSchedule = await models.HelicopterSchedule.findByPk(bookedSeat.schedule_id, { transaction });
+            if (helicopterSchedule) {
+                isHelicopterBooking = true;
+                // This is a helicopter booking - use helicopter seat validation
+                const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
+                availableSeats = await getAvailableHelicopterSeats({
+                    models,
+                    schedule_id: bookedSeat.schedule_id,
+                    bookDate: bookedSeat.bookDate,
+                    transaction,
+                });
+            } else {
+                // This is a flight booking - use flight seat validation
+                availableSeats = await getAvailableSeats({
+                    models,
+                    schedule_id: bookedSeat.schedule_id,
+                    bookDate: bookedSeat.bookDate,
+                    transaction,
+                });
+            }
+        } catch (error) {
+            throw new Error(`Failed to verify seat availability: ${error.message}`);
+        }
+
+        for (const seat of bookedSeat.seat_labels) {
+            if (!availableSeats.includes(seat)) {
+                throw new Error(`Seat ${seat} is not available`);
+            }
+        }
+
+        let newBooking;
+
+        if (isHelicopterBooking) {
+            // Create helicopter booking in helicopter_bookings table
+            newBooking = await models.HelicopterBooking.create(
+                {
+                    pnr: booking.pnr,
+                    bookingNo: booking.bookingNo,
+                    contact_no: booking.contact_no,
+                    email_id: booking.email_id,
+                    noOfPassengers: booking.noOfPassengers,
+                    bookDate: booking.bookDate,
+                    helicopter_schedule_id: bookedSeat.schedule_id,
+                    totalFare: booking.totalFare,
+                    transactionId: booking.transactionId,
+                    paymentStatus: 'SUCCESS',
+                    bookingStatus: 'CONFIRMED',
+                    bookedUserId: booking.bookedUserId,
+                    pay_amt: booking.pay_amt,
+                    pay_mode: booking.pay_mode,
+                    paymentId: booking.paymentId,
+                    discount: booking.discount || '0',
+                    agentId: booking.agentId || null,
+                },
+                { transaction }
+            );
+
+            // Create helicopter booked seats
+            for (const seat of bookedSeat.seat_labels) {
+                await models.HelicopterBookedSeat.create(
+                    {
+                        helicopter_booking_id: newBooking.id,
+                        helicopter_schedule_id: bookedSeat.schedule_id,
+                        bookDate: bookedSeat.bookDate,
+                        seat_label: seat,
+                        booked_seat: 1,
+                    },
+                    { transaction }
+                );
+            }
+
+            // Create helicopter passengers
+            await models.HelicopterPassenger.bulkCreate(
+                passengers.map((p) => ({
+                    helicopter_bookingId: newBooking.id,
+                    title: p.title,
+                    name: p.name,
+                    dob: p.dob || null,
+                    age: p.age,
+                    type: p.type,
+                })),
+                { transaction }
+            );
+
+            // Create helicopter payment
+            await models.HelicopterPayment.create(
+                {
+                    transaction_id: payment.transaction_id,
+                    payment_id: payment.payment_id,
+                    payment_status: payment.payment_status,
+                    payment_mode: payment.payment_mode,
+                    payment_amount: payment.payment_amount,
+                    message: payment.message || null,
+                    helicopter_booking_id: newBooking.id,
+                    user_id: booking.bookedUserId,
+                },
+                { transaction }
+            );
+
+            // Update available seats for helicopter
+            const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
+            availableSeats = await getAvailableHelicopterSeats({
+                models,
+                schedule_id: bookedSeat.schedule_id,
+                bookDate: bookedSeat.bookDate,
+                transaction,
+            });
+
+        } else {
+            // Create flight booking in bookings table (existing logic)
+            newBooking = await models.Booking.create(
+                {
+                    ...booking,
+                    bookingStatus: 'CONFIRMED',
+                    paymentStatus: 'SUCCESS',
+                    agentId: booking.agentId || null,
+                },
+                { transaction }
+            );
+
+            // Create booked seats
+            for (const seat of bookedSeat.seat_labels) {
+                await models.BookedSeat.create(
+                    {
+                        booking_id: newBooking.id,
+                        schedule_id: bookedSeat.schedule_id,
+                        bookDate: bookedSeat.bookDate,
+                        seat_label: seat,
+                        booked_seat: 1,
+                    },
+                    { transaction }
+                );
+            }
+
+            // Create billing and payment records
+            await models.Billing.create({ ...billing, user_id: booking.bookedUserId }, { transaction });
+            await models.Payment.create({ ...payment, booking_id: newBooking.id, user_id: booking.bookedUserId }, { transaction });
+
+            // Create passengers
+            await models.Passenger.bulkCreate(
+                passengers.map((p) => ({
+                    bookingId: newBooking.id,
+                    title: p.title,
+                    name: p.name,
+                    dob: p.dob || null,
+                    age: p.age,
+                    type: p.type,
+                })),
+                { transaction }
+            );
+
+            // Update available seats for flight
+            availableSeats = await getAvailableSeats({
+                models,
+                schedule_id: bookedSeat.schedule_id,
+                bookDate: bookedSeat.bookDate,
+                transaction,
+            });
+        }
+
+        await transaction.commit();
+
+        // Emit seats-updated event
+        if (req.io) {
+            req.io.emit('seats-updated', {
+                schedule_id: bookedSeat.schedule_id,
+                bookDate: bookedSeat.bookDate,
+                availableSeats: availableSeats,
+                bookingType: isHelicopterBooking ? 'helicopter' : 'flight',
+            });
+        }
+
+        // Return complete booking data with PNR and all details
+        return res.status(201).json({
+            booking: {
+                id: newBooking.id,
+                pnr: newBooking.pnr,
+                bookingNo: newBooking.bookingNo,
+                bookingStatus: newBooking.bookingStatus,
+                paymentStatus: newBooking.paymentStatus,
+                bookDate: newBooking.bookDate,
+                totalFare: newBooking.totalFare,
+                noOfPassengers: newBooking.noOfPassengers,
+                contact_no: newBooking.contact_no,
+                email_id: newBooking.email_id,
+                bookedSeats: bookedSeat.seat_labels,
+                bookingType: isHelicopterBooking ? 'helicopter' : 'flight',
+            },
+            passengers: passengers.map((p, index) => ({
+                name: p.name,
+                fullName: p.name,
+                title: p.title,
+                age: p.age,
+                type: p.type,
+                dob: p.dob,
+                seat: bookedSeat.seat_labels[index] || 'Not Assigned',
+            })),
+            availableSeats: availableSeats,
         });
-      } else {
-        // This is a flight booking - use flight seat validation
-        availableSeats = await getAvailableSeats({
-          models,
-          schedule_id: bookedSeat.schedule_id,
-          bookDate: bookedSeat.bookDate,
-          transaction,
-        });
-      }
-    } catch (error) {
-      throw new Error(`Failed to verify seat availability: ${error.message}`);
+    } catch (err) {
+        if (transaction) await transaction.rollback();
+        return res.status(400).json({ error: `Failed to complete booking: ${err.message}` });
     }
-
-    for (const seat of bookedSeat.seat_labels) {
-      if (!availableSeats.includes(seat)) {
-        throw new Error(`Seat ${seat} is not available`);
-      }
-    }
-
-    let newBooking;
-    
-    if (isHelicopterBooking) {
-      // Create helicopter booking in helicopter_bookings table
-      newBooking = await models.HelicopterBooking.create(
-        {
-          pnr: booking.pnr,
-          bookingNo: booking.bookingNo,
-          contact_no: booking.contact_no,
-          email_id: booking.email_id,
-          noOfPassengers: booking.noOfPassengers,
-          bookDate: booking.bookDate,
-          helicopter_schedule_id: bookedSeat.schedule_id,
-          totalFare: booking.totalFare,
-          transactionId: booking.transactionId,
-          paymentStatus: 'SUCCESS',
-          bookingStatus: 'CONFIRMED',
-          bookedUserId: booking.bookedUserId,
-          pay_amt: booking.pay_amt,
-          pay_mode: booking.pay_mode,
-          paymentId: booking.paymentId,
-          discount: booking.discount || '0',
-          agentId: booking.agentId || null,
-        },
-        { transaction }
-      );
-
-      // Create helicopter booked seats
-      for (const seat of bookedSeat.seat_labels) {
-        await models.HelicopterBookedSeat.create(
-          {
-            helicopter_booking_id: newBooking.id,
-            helicopter_schedule_id: bookedSeat.schedule_id,
-            bookDate: bookedSeat.bookDate,
-            seat_label: seat,
-            booked_seat: 1,
-          },
-          { transaction }
-        );
-      }
-
-      // Create helicopter passengers
-      await models.HelicopterPassenger.bulkCreate(
-        passengers.map((p) => ({
-          helicopter_bookingId: newBooking.id,
-          title: p.title,
-          name: p.name,
-          dob: p.dob || null,
-          age: p.age,
-          type: p.type,
-        })),
-        { transaction }
-      );
-
-      // Create helicopter payment
-      await models.HelicopterPayment.create(
-        {
-          transaction_id: payment.transaction_id,
-          payment_id: payment.payment_id,
-          payment_status: payment.payment_status,
-          payment_mode: payment.payment_mode,
-          payment_amount: payment.payment_amount,
-          message: payment.message || null,
-          helicopter_booking_id: newBooking.id,
-          user_id: booking.bookedUserId,
-        },
-        { transaction }
-      );
-
-      // Update available seats for helicopter
-      const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
-      availableSeats = await getAvailableHelicopterSeats({
-        models,
-        schedule_id: bookedSeat.schedule_id,
-        bookDate: bookedSeat.bookDate,
-        transaction,
-      });
-      
-    } else {
-      // Create flight booking in bookings table (existing logic)
-      newBooking = await models.Booking.create(
-        {
-          ...booking,
-          bookingStatus: 'CONFIRMED',
-          paymentStatus: 'SUCCESS',
-          agentId: booking.agentId || null,
-        },
-        { transaction }
-      );
-
-      // Create booked seats
-      for (const seat of bookedSeat.seat_labels) {
-        await models.BookedSeat.create(
-          {
-            booking_id: newBooking.id,
-            schedule_id: bookedSeat.schedule_id,
-            bookDate: bookedSeat.bookDate,
-            seat_label: seat,
-            booked_seat: 1,
-          },
-          { transaction }
-        );
-      }
-
-      // Create billing and payment records
-      await models.Billing.create({ ...billing, user_id: booking.bookedUserId }, { transaction });
-      await models.Payment.create({ ...payment, booking_id: newBooking.id, user_id: booking.bookedUserId }, { transaction });
-
-      // Create passengers
-      await models.Passenger.bulkCreate(
-        passengers.map((p) => ({
-          bookingId: newBooking.id,
-          title: p.title,
-          name: p.name,
-          dob: p.dob || null,
-          age: p.age,
-          type: p.type,
-        })),
-        { transaction }
-      );
-
-      // Update available seats for flight
-      availableSeats = await getAvailableSeats({
-        models,
-        schedule_id: bookedSeat.schedule_id,
-        bookDate: bookedSeat.bookDate,
-        transaction,
-      });
-    }
-
-    await transaction.commit();
-
-    // Emit seats-updated event
-    if (req.io) {
-      req.io.emit('seats-updated', {
-        schedule_id: bookedSeat.schedule_id,
-        bookDate: bookedSeat.bookDate,
-        availableSeats: availableSeats,
-        bookingType: isHelicopterBooking ? 'helicopter' : 'flight',
-      });
-    }
-
-    // Return complete booking data with PNR and all details
-    return res.status(201).json({
-      booking: {
-        id: newBooking.id,
-        pnr: newBooking.pnr,
-        bookingNo: newBooking.bookingNo,
-        bookingStatus: newBooking.bookingStatus,
-        paymentStatus: newBooking.paymentStatus,
-        bookDate: newBooking.bookDate,
-        totalFare: newBooking.totalFare,
-        noOfPassengers: newBooking.noOfPassengers,
-        contact_no: newBooking.contact_no,
-        email_id: newBooking.email_id,
-        bookedSeats: bookedSeat.seat_labels,
-        bookingType: isHelicopterBooking ? 'helicopter' : 'flight',
-      },
-      passengers: passengers.map((p, index) => ({
-        name: p.name,
-        fullName: p.name,
-        title: p.title,
-        age: p.age,
-        type: p.type,
-        dob: p.dob,
-        seat: bookedSeat.seat_labels[index] || 'Not Assigned',
-      })),
-      availableSeats: availableSeats,
-    });
-  } catch (err) {
-    if (transaction) await transaction.rollback();
-    return res.status(400).json({ error: `Failed to complete booking: ${err.message}` });
-  }
 }
 
 
 async function generatePNRController(req, res) {
-  try {
-    const pnr = await generatePNR();
-    res.json({ pnr });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to generate PNR" });
-  }
+    try {
+        const pnr = await generatePNR();
+        res.json({ pnr });
+    } catch (err) {
+        res.status(500).json({ error: "Failed to generate PNR" });
+    }
 }
 
 
@@ -475,8 +475,8 @@ async function bookSeatsWithoutPayment(req, res) {
     for (const p of passengers) {
         if (p.type === 'Adult') expectedFare += adultFare;
         else if (p.type === 'Child') expectedFare += childFare;
-       
-      }
+
+    }
 
     const totalFare = parseFloat(booking.totalFare);
     if (!Number.isFinite(totalFare) || totalFare < 0 || totalFare !== expectedFare) {
@@ -700,7 +700,7 @@ async function bookHelicopterSeatsWithoutPayment(req, res) {
                 bookDate: bookedSeat.bookDate,
                 transaction: t,
             });
-            
+
             if (!availableSeats) {
                 throw new Error(`Helicopter schedule ${bookedSeat.schedule_id} not found or invalid`);
             }
@@ -797,8 +797,8 @@ async function cancelHelicopterBooking(req, res) {
         // Fetch the helicopter booking from helicopter_bookings table
         const booking = await models.HelicopterBooking.findByPk(id, {
             include: [
-                { 
-                    model: models.HelicopterSchedule, 
+                {
+                    model: models.HelicopterSchedule,
                     required: true,
                     include: [
                         { model: models.Helicopter, as: 'Helicopter' }
@@ -942,8 +942,8 @@ async function rescheduleHelicopterBooking(req, res) {
         t = await models.sequelize.transaction();
         const booking = await models.HelicopterBooking.findByPk(id, {
             include: [
-                { 
-                    model: models.HelicopterSchedule, 
+                {
+                    model: models.HelicopterSchedule,
                     required: true,
                     include: [
                         { model: models.Helicopter, as: 'Helicopter' }
@@ -1013,7 +1013,7 @@ async function rescheduleHelicopterBooking(req, res) {
             bookDate: newBookDate,
             transaction: t,
         });
-        
+
         for (const seat of newSeatLabels) {
             if (!availableSeats.includes(seat)) {
                 await t.rollback();
@@ -1121,7 +1121,7 @@ async function rescheduleHelicopterBooking(req, res) {
 
 async function getIrctcBookings(req, res) {
 
-    
+
     try {
         // Check authorization
 
@@ -1139,7 +1139,8 @@ async function getIrctcBookings(req, res) {
         if (status) where.bookingStatus = status.toUpperCase();
         if (startDate && endDate) {
             where.bookDate = {
-                [models.Sequelize.Op.between]: [startDate, endDate] };
+                [models.Sequelize.Op.between]: [startDate, endDate]
+            };
         }
 
         const bookings = await models.Booking.findAll({
@@ -1163,7 +1164,7 @@ async function getIrctcBookings(req, res) {
         }
 
         const bookingsWithBilling = await Promise.all(
-            bookings.map(async(booking) => {
+            bookings.map(async (booking) => {
                 const billing = await models.Billing.findOne({ where: { user_id: booking.bookedUserId } });
                 return {
                     ...booking.toJSON(),
@@ -1190,8 +1191,8 @@ async function getUserBookings(req, res) {
         const flightBookings = await models.Booking.findAll({
             where: { bookedUserId: userId },
             include: [
-                { 
-                    model: models.FlightSchedule, 
+                {
+                    model: models.FlightSchedule,
                     required: true, // Only flight bookings
                     include: [
                         { model: models.Flight, required: false }
@@ -1215,10 +1216,10 @@ async function getUserBookings(req, res) {
                     model: models.HelicopterSchedule,
                     required: true,
                     include: [
-                        { 
-                            model: models.Helicopter, 
-                            required: false, 
-                            as: 'Helicopter' 
+                        {
+                            model: models.Helicopter,
+                            required: false,
+                            as: 'Helicopter'
                         },
                         {
                             model: models.Helipad,
@@ -1244,9 +1245,9 @@ async function getUserBookings(req, res) {
 
         // Process flight bookings
         const flightBookingsWithExtras = await Promise.all(
-            flightBookings.map(async(b) => {
+            flightBookings.map(async (b) => {
                 const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
-                
+
                 return {
                     ...b.toJSON(),
                     seatLabels: b.BookedSeats?.map((s) => s.seat_label) || [],
@@ -1259,9 +1260,9 @@ async function getUserBookings(req, res) {
 
         // Process helicopter bookings
         const helicopterBookingsWithExtras = await Promise.all(
-            helicopterBookings.map(async(b) => {
+            helicopterBookings.map(async (b) => {
                 const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
-                
+
                 return {
                     ...b.toJSON(),
                     seatLabels: b.BookedSeats?.map((s) => s.seat_label) || [],
@@ -1303,8 +1304,8 @@ async function getBookings(req, res) {
             include: [
                 { model: models.BookedSeat, attributes: ['seat_label'], required: false },
                 { model: models.Passenger, required: false },
-                { 
-                    model: models.FlightSchedule, 
+                {
+                    model: models.FlightSchedule,
                     required: false,
                     include: [
                         { model: models.Flight, required: false }
@@ -1320,7 +1321,7 @@ async function getBookings(req, res) {
         });
 
         const withBilling = await Promise.all(
-            bookings.map(async(b) => {
+            bookings.map(async (b) => {
                 try {
                     const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
                     if (!b.FlightSchedule) {
@@ -1331,7 +1332,7 @@ async function getBookings(req, res) {
                     const paymentMode = b.Payments?.[0]?.payment_mode || b.pay_mode || "N/A";
                     const transactionId = b.Payments?.[0]?.transaction_id || b.transactionId || "N/A";
                     const agentId = b.Agent?.agentId || "FLYOLA";
-                    
+
                     return {
                         ...b.toJSON(),
                         seatLabels: seatLabels,
@@ -1386,25 +1387,25 @@ async function getHelicopterBookings(req, res) {
         const bookings = await models.HelicopterBooking.findAll({
             where,
             include: [
-                { 
-                    model: models.HelicopterBookedSeat, 
+                {
+                    model: models.HelicopterBookedSeat,
                     as: 'BookedSeats',
-                    attributes: ['seat_label'], 
-                    required: false 
+                    attributes: ['seat_label'],
+                    required: false
                 },
-                { 
-                    model: models.HelicopterPassenger, 
+                {
+                    model: models.HelicopterPassenger,
                     as: 'Passengers',
-                    required: false 
+                    required: false
                 },
                 {
                     model: models.HelicopterSchedule,
                     required: true,
                     include: [
-                        { 
-                            model: models.Helicopter, 
+                        {
+                            model: models.Helicopter,
                             required: true,
-                            as: 'Helicopter' 
+                            as: 'Helicopter'
                         },
                         {
                             model: models.Helipad,
@@ -1418,10 +1419,10 @@ async function getHelicopterBookings(req, res) {
                         }
                     ]
                 },
-                { 
-                    model: models.HelicopterPayment, 
-                    as: 'Payments', 
-                    required: false 
+                {
+                    model: models.HelicopterPayment,
+                    as: 'Payments',
+                    required: false
                 },
                 { model: models.Agent, required: false },
             ],
@@ -1431,16 +1432,16 @@ async function getHelicopterBookings(req, res) {
         });
 
         const withBilling = await Promise.all(
-            bookings.map(async(b) => {
+            bookings.map(async (b) => {
                 try {
                     const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
-                    
+
                     const seatLabels = b.BookedSeats?.map((s) => s.seat_label).join(", ") || "N/A";
                     const passengerNames = b.Passengers?.map((p) => p.name).join(", ") || "N/A";
                     const paymentMode = b.Payments?.[0]?.payment_mode || b.pay_mode || "N/A";
                     const transactionId = b.Payments?.[0]?.transaction_id || b.transactionId || "N/A";
                     const agentId = b.Agent?.agentId || "FLYOLA";
-                    
+
                     return {
                         ...b.toJSON(),
                         seatLabels: seatLabels,
@@ -1966,95 +1967,95 @@ async function rescheduleIrctcBooking(req, res) {
 }
 
 async function getBookingsByUser(req, res) {
-  const { name, email } = req.query;
+    const { name, email } = req.query;
 
-  if (!name || !email) {
-    return res.status(400).json({ error: 'Name and email are required' });
-  }
-
-  try {
-    // Fetch flight bookings
-    const flightBookings = await models.Booking.findAll({
-      where: { email_id: email },
-      include: [
-        {
-          model: models.Passenger,
-          required: true,
-          where: { name: { [Op.like]: `%${name}%` } },
-        },
-        { model: models.FlightSchedule, required: false },
-        { model: models.BookedSeat, attributes: ['seat_label'], required: false },
-        { model: models.Payment, as: 'Payments', required: false },
-        { model: models.Agent, required: false },
-      ],
-      order: [['bookDate', 'DESC']],
-    });
-
-    // Fetch helicopter bookings
-    const helicopterBookings = await models.HelicopterBooking.findAll({
-      where: { email_id: email },
-      include: [
-        {
-          model: models.HelicopterPassenger,
-          as: 'Passengers',
-          required: true,
-          where: { name: { [Op.like]: `%${name}%` } },
-        },
-        { 
-          model: models.HelicopterSchedule, 
-          required: false,
-          include: [
-            { model: models.Helicopter, required: false, as: 'Helicopter' },
-            { model: models.Helipad, required: false, as: 'DepartureLocation' },
-            { model: models.Helipad, required: false, as: 'ArrivalLocation' }
-          ]
-        },
-        { model: models.HelicopterBookedSeat, as: 'BookedSeats', attributes: ['seat_label'], required: false },
-        { model: models.HelicopterPayment, as: 'Payments', required: false },
-        { model: models.Agent, required: false },
-      ],
-      order: [['bookDate', 'DESC']],
-    });
-
-    // Process flight bookings
-    const flightBookingsWithExtras = await Promise.all(
-      flightBookings.map(async (b) => {
-        const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
-        return {
-          ...b.toJSON(),
-          seatLabels: b.BookedSeats?.map((s) => s.seat_label) || [],
-          billing: billing ? billing.toJSON() : null,
-          bookingType: 'flight',
-        };
-      })
-    );
-
-    // Process helicopter bookings
-    const helicopterBookingsWithExtras = await Promise.all(
-      helicopterBookings.map(async (b) => {
-        const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
-        return {
-          ...b.toJSON(),
-          seatLabels: b.BookedSeats?.map((s) => s.seat_label) || [],
-          billing: billing ? billing.toJSON() : null,
-          bookingType: 'helicopter',
-          helicopterNumber: b.HelicopterSchedule?.Helicopter?.helicopter_number || 'N/A',
-        };
-      })
-    );
-
-    // Combine all bookings
-    const allBookings = [...flightBookingsWithExtras, ...helicopterBookingsWithExtras]
-      .sort((a, b) => new Date(b.bookDate) - new Date(a.bookDate));
-
-    if (allBookings.length === 0) {
-      return res.status(404).json({ error: 'No bookings found for the provided name and email' });
+    if (!name || !email) {
+        return res.status(400).json({ error: 'Name and email are required' });
     }
 
-    return res.status(200).json(allBookings);
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to fetch bookings: ' + err.message });
-  }
+    try {
+        // Fetch flight bookings
+        const flightBookings = await models.Booking.findAll({
+            where: { email_id: email },
+            include: [
+                {
+                    model: models.Passenger,
+                    required: true,
+                    where: { name: { [Op.like]: `%${name}%` } },
+                },
+                { model: models.FlightSchedule, required: false },
+                { model: models.BookedSeat, attributes: ['seat_label'], required: false },
+                { model: models.Payment, as: 'Payments', required: false },
+                { model: models.Agent, required: false },
+            ],
+            order: [['bookDate', 'DESC']],
+        });
+
+        // Fetch helicopter bookings
+        const helicopterBookings = await models.HelicopterBooking.findAll({
+            where: { email_id: email },
+            include: [
+                {
+                    model: models.HelicopterPassenger,
+                    as: 'Passengers',
+                    required: true,
+                    where: { name: { [Op.like]: `%${name}%` } },
+                },
+                {
+                    model: models.HelicopterSchedule,
+                    required: false,
+                    include: [
+                        { model: models.Helicopter, required: false, as: 'Helicopter' },
+                        { model: models.Helipad, required: false, as: 'DepartureLocation' },
+                        { model: models.Helipad, required: false, as: 'ArrivalLocation' }
+                    ]
+                },
+                { model: models.HelicopterBookedSeat, as: 'BookedSeats', attributes: ['seat_label'], required: false },
+                { model: models.HelicopterPayment, as: 'Payments', required: false },
+                { model: models.Agent, required: false },
+            ],
+            order: [['bookDate', 'DESC']],
+        });
+
+        // Process flight bookings
+        const flightBookingsWithExtras = await Promise.all(
+            flightBookings.map(async (b) => {
+                const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
+                return {
+                    ...b.toJSON(),
+                    seatLabels: b.BookedSeats?.map((s) => s.seat_label) || [],
+                    billing: billing ? billing.toJSON() : null,
+                    bookingType: 'flight',
+                };
+            })
+        );
+
+        // Process helicopter bookings
+        const helicopterBookingsWithExtras = await Promise.all(
+            helicopterBookings.map(async (b) => {
+                const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
+                return {
+                    ...b.toJSON(),
+                    seatLabels: b.BookedSeats?.map((s) => s.seat_label) || [],
+                    billing: billing ? billing.toJSON() : null,
+                    bookingType: 'helicopter',
+                    helicopterNumber: b.HelicopterSchedule?.Helicopter?.helicopter_number || 'N/A',
+                };
+            })
+        );
+
+        // Combine all bookings
+        const allBookings = [...flightBookingsWithExtras, ...helicopterBookingsWithExtras]
+            .sort((a, b) => new Date(b.bookDate) - new Date(a.bookDate));
+
+        if (allBookings.length === 0) {
+            return res.status(404).json({ error: 'No bookings found for the provided name and email' });
+        }
+
+        return res.status(200).json(allBookings);
+    } catch (err) {
+        return res.status(500).json({ error: 'Failed to fetch bookings: ' + err.message });
+    }
 }
 
 
@@ -2082,230 +2083,230 @@ module.exports = {
 
 // Complete booking with discount coupon
 async function completeBookingWithDiscount(req, res) {
-  const { bookedSeat, booking, billing, payment, passengers, couponCode } = req.body;
+    const { bookedSeat, booking, billing, payment, passengers, couponCode } = req.body;
 
-  // Input validation (same as completeBooking)
-  if (!bookedSeat || !booking || !billing || !payment || !Array.isArray(passengers) || !passengers.length) {
-    return res.status(400).json({ error: 'Missing required booking sections: bookedSeat, booking, billing, payment, or passengers' });
-  }
-  if (!dayjs(bookedSeat.bookDate, 'YYYY-MM-DD', true).isValid()) {
-    return res.status(400).json({ error: 'Invalid bookDate format (YYYY-MM-DD)' });
-  }
-  if (!bookedSeat.seat_labels || !Array.isArray(bookedSeat.seat_labels) || bookedSeat.seat_labels.length !== passengers.length) {
-    return res.status(400).json({ error: 'seat_labels must be an array matching the number of passengers' });
-  }
-
-  // Validate booking fields
-  const bookingRequiredFields = ['pnr', 'bookingNo', 'contact_no', 'email_id', 'noOfPassengers', 'bookDate', 'totalFare', 'bookedUserId', 'schedule_id'];
-  const missingBookingFields = bookingRequiredFields.filter(f => !booking[f] && booking[f] !== 0);
-  if (missingBookingFields.length) {
-    return res.status(400).json({ error: `Missing booking fields: ${missingBookingFields.join(', ')}` });
-  }
-
-  // Validate other sections
-  if (!billing.user_id) {
-    return res.status(400).json({ error: 'Missing billing field: user_id' });
-  }
-  const paymentRequiredFields = ['user_id', 'payment_amount', 'payment_status', 'transaction_id', 'payment_mode'];
-  const missingPaymentFields = paymentRequiredFields.filter(f => !payment[f] && payment[f] !== 0);
-  if (missingPaymentFields.length) {
-    return res.status(400).json({ error: `Missing payment fields: ${missingPaymentFields.join(', ')}` });
-  }
-  for (const p of passengers) {
-    if (!p.name || !p.title || !p.type || typeof p.age !== 'number') {
-      return res.status(400).json({ error: 'Missing passenger fields: name, title, type, age' });
+    // Input validation (same as completeBooking)
+    if (!bookedSeat || !booking || !billing || !payment || !Array.isArray(passengers) || !passengers.length) {
+        return res.status(400).json({ error: 'Missing required booking sections: bookedSeat, booking, billing, payment, or passengers' });
     }
-  }
-  if (!['RAZORPAY', 'ADMIN', 'AGENT'].includes(payment.payment_mode)) {
-    return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY, ADMIN, or AGENT' });
-  }
+    if (!dayjs(bookedSeat.bookDate, 'YYYY-MM-DD', true).isValid()) {
+        return res.status(400).json({ error: 'Invalid bookDate format (YYYY-MM-DD)' });
+    }
+    if (!bookedSeat.seat_labels || !Array.isArray(bookedSeat.seat_labels) || bookedSeat.seat_labels.length !== passengers.length) {
+        return res.status(400).json({ error: 'seat_labels must be an array matching the number of passengers' });
+    }
 
-  const originalTotalFare = parseFloat(booking.totalFare);
-  let finalTotalFare = originalTotalFare;
-  let discountAmount = 0;
-  let appliedCoupon = null;
+    // Validate booking fields
+    const bookingRequiredFields = ['pnr', 'bookingNo', 'contact_no', 'email_id', 'noOfPassengers', 'bookDate', 'totalFare', 'bookedUserId', 'schedule_id'];
+    const missingBookingFields = bookingRequiredFields.filter(f => !booking[f] && booking[f] !== 0);
+    if (missingBookingFields.length) {
+        return res.status(400).json({ error: `Missing booking fields: ${missingBookingFields.join(', ')}` });
+    }
 
-  // Apply coupon if provided
-  if (couponCode) {
+    // Validate other sections
+    if (!billing.user_id) {
+        return res.status(400).json({ error: 'Missing billing field: user_id' });
+    }
+    const paymentRequiredFields = ['user_id', 'payment_amount', 'payment_status', 'transaction_id', 'payment_mode'];
+    const missingPaymentFields = paymentRequiredFields.filter(f => !payment[f] && payment[f] !== 0);
+    if (missingPaymentFields.length) {
+        return res.status(400).json({ error: `Missing payment fields: ${missingPaymentFields.join(', ')}` });
+    }
+    for (const p of passengers) {
+        if (!p.name || !p.title || !p.type || typeof p.age !== 'number') {
+            return res.status(400).json({ error: 'Missing passenger fields: name, title, type, age' });
+        }
+    }
+    if (!['RAZORPAY', 'ADMIN', 'AGENT'].includes(payment.payment_mode)) {
+        return res.status(400).json({ error: 'Invalid payment_mode. Must be RAZORPAY, ADMIN, or AGENT' });
+    }
+
+    const originalTotalFare = parseFloat(booking.totalFare);
+    let finalTotalFare = originalTotalFare;
+    let discountAmount = 0;
+    let appliedCoupon = null;
+
+    // Apply coupon if provided
+    if (couponCode) {
+        try {
+            const Coupon = require('../model/coupon');
+            const { Op } = require('sequelize');
+
+            const coupon = await Coupon.findOne({
+                where: {
+                    code: couponCode.toUpperCase(),
+                    status: 'active',
+                    valid_from: { [Op.lte]: new Date() },
+                    valid_until: { [Op.gte]: new Date() }
+                }
+            });
+
+            if (!coupon) {
+                return res.status(400).json({ error: 'Invalid or expired coupon code' });
+            }
+
+            // Check usage limit
+            if (coupon.usage_limit && coupon.used_count >= coupon.usage_limit) {
+                return res.status(400).json({ error: 'Coupon usage limit exceeded' });
+            }
+
+            // Check minimum booking amount
+            if (originalTotalFare < coupon.min_booking_amount) {
+                return res.status(400).json({
+                    error: `Minimum booking amount of ₹${coupon.min_booking_amount} required for this coupon`
+                });
+            }
+
+            // Calculate discount
+            if (coupon.discount_type === 'percentage') {
+                discountAmount = (originalTotalFare * coupon.discount_value) / 100;
+                if (coupon.max_discount && discountAmount > coupon.max_discount) {
+                    discountAmount = coupon.max_discount;
+                }
+            } else {
+                discountAmount = coupon.discount_value;
+            }
+
+            finalTotalFare = Math.max(0, originalTotalFare - discountAmount);
+            appliedCoupon = coupon;
+
+        } catch (couponError) {
+            console.error('Coupon validation error:', couponError);
+            return res.status(400).json({ error: 'Failed to apply coupon' });
+        }
+    }
+
+    // Update booking and payment amounts with discount
+    booking.totalFare = finalTotalFare;
+    booking.originalFare = originalTotalFare;
+    booking.discountAmount = discountAmount;
+    booking.couponCode = couponCode || null;
+    payment.payment_amount = finalTotalFare;
+
+    const paymentAmount = parseFloat(payment.payment_amount);
+    if (!Number.isFinite(finalTotalFare) || finalTotalFare < 0) {
+        return res.status(400).json({ error: 'Total fare must be a non-negative number' });
+    }
+    if (Math.abs(finalTotalFare - paymentAmount) > 0.01) {
+        return res.status(400).json({ error: 'Total fare does not match payment amount' });
+    }
+
+    let transaction;
     try {
-      const Coupon = require('../model/coupon');
-      const { Op } = require('sequelize');
-
-      const coupon = await Coupon.findOne({
-        where: {
-          code: couponCode.toUpperCase(),
-          status: 'active',
-          valid_from: { [Op.lte]: new Date() },
-          valid_until: { [Op.gte]: new Date() }
+        // Validate user
+        const user = await models.User.findByPk(booking.bookedUserId);
+        if (!user) {
+            return res.status(400).json({ error: `Invalid bookedUserId: ${booking.bookedUserId}` });
         }
-      });
 
-      if (!coupon) {
-        return res.status(400).json({ error: 'Invalid or expired coupon code' });
-      }
+        transaction = await models.sequelize.transaction();
 
-      // Check usage limit
-      if (coupon.usage_limit && coupon.used_count >= coupon.usage_limit) {
-        return res.status(400).json({ error: 'Coupon usage limit exceeded' });
-      }
+        // Authenticate admin for ADMIN mode
+        if (payment.payment_mode === 'ADMIN') {
+            const token = req.headers.authorization?.startsWith('Bearer ')
+                ? req.headers.authorization.split(' ')[1]
+                : req.headers.token || req.cookies?.token;
 
-      // Check minimum booking amount
-      if (originalTotalFare < coupon.min_booking_amount) {
-        return res.status(400).json({ 
-          error: `Minimum booking amount of ₹${coupon.min_booking_amount} required for this coupon` 
+            if (!token) {
+                throw new Error('Unauthorized: No token provided for admin booking');
+            }
+
+            let decoded;
+            try {
+                decoded = jwt.verify(token, process.env.JWT_SECRET);
+                if (String(decoded.role) !== '1') {
+                    throw new Error('Forbidden: Only admins can use ADMIN payment mode');
+                }
+                if (
+                    String(decoded.id) !== String(booking.bookedUserId) ||
+                    String(decoded.id) !== String(billing.user_id) ||
+                    String(decoded.id) !== String(payment.user_id)
+                ) {
+                    throw new Error('User ID mismatch in booking, billing, or payment');
+                }
+            } catch (jwtErr) {
+                throw new Error(`Invalid token: ${jwtErr.message}`);
+            }
+
+            payment.payment_status = 'SUCCESS';
+            payment.payment_id = `ADMIN_${Date.now()}`;
+            payment.order_id = `ADMIN_${Date.now()}`;
+            payment.razorpay_signature = null;
+            payment.message = 'Admin booking (no payment required)';
+        } else if (payment.payment_mode === 'RAZORPAY') {
+            if (!payment.payment_id || !payment.order_id || !payment.razorpay_signature) {
+                throw new Error('Missing Razorpay payment fields: payment_id, order_id, or razorpay_signature');
+            }
+            const isValidSignature = await verifyPayment({
+                order_id: payment.order_id,
+                payment_id: payment.payment_id,
+                signature: payment.razorpay_signature,
+            });
+            if (!isValidSignature) {
+                throw new Error('Invalid Razorpay signature');
+            }
+        } else if (payment.payment_mode === 'AGENT') {
+            const agent = await models.User.findByPk(payment.user_id);
+            if (!agent || agent.role !== 2) {
+                throw new Error('Invalid agent ID for agent booking');
+            }
+
+            booking.agentId = payment.user_id;
+
+            payment.payment_status = 'SUCCESS';
+            payment.payment_id = `AGENT_${Date.now()}`;
+            payment.order_id = `AGENT_${Date.now()}`;
+            payment.razorpay_signature = null;
+            payment.message = 'Agent booking (no payment required)';
+        }
+
+        // Continue with the same booking logic as completeBooking...
+        // (seat verification, booking creation, etc.)
+
+        // After successful booking, record coupon usage
+        if (appliedCoupon) {
+            const CouponUsage = require('../model/couponUsage');
+
+            // Increment coupon used_count
+            await appliedCoupon.increment('used_count', { transaction });
+
+            // Record usage
+            await CouponUsage.create({
+                coupon_id: appliedCoupon.id,
+                user_id: booking.bookedUserId,
+                booking_id: null, // Will be updated after booking is created
+                original_amount: originalTotalFare,
+                discount_amount: discountAmount,
+                final_amount: finalTotalFare
+            }, { transaction });
+        }
+
+        // Call the original completeBooking logic here
+        // For now, returning success with discount info
+        await transaction.commit();
+
+        return res.status(200).json({
+            message: 'Booking completed successfully with discount',
+            booking: {
+                ...booking,
+                originalFare: originalTotalFare,
+                discountAmount: discountAmount,
+                finalFare: finalTotalFare,
+                couponApplied: couponCode || null
+            },
+            discount: appliedCoupon ? {
+                code: appliedCoupon.code,
+                type: appliedCoupon.discount_type,
+                value: appliedCoupon.discount_value,
+                saved: discountAmount
+            } : null
         });
-      }
 
-      // Calculate discount
-      if (coupon.discount_type === 'percentage') {
-        discountAmount = (originalTotalFare * coupon.discount_value) / 100;
-        if (coupon.max_discount && discountAmount > coupon.max_discount) {
-          discountAmount = coupon.max_discount;
-        }
-      } else {
-        discountAmount = coupon.discount_value;
-      }
-
-      finalTotalFare = Math.max(0, originalTotalFare - discountAmount);
-      appliedCoupon = coupon;
-
-    } catch (couponError) {
-      console.error('Coupon validation error:', couponError);
-      return res.status(400).json({ error: 'Failed to apply coupon' });
+    } catch (error) {
+        if (transaction) await transaction.rollback();
+        console.error('Complete booking with discount error:', error);
+        return res.status(500).json({ error: error.message || 'Failed to complete booking' });
     }
-  }
-
-  // Update booking and payment amounts with discount
-  booking.totalFare = finalTotalFare;
-  booking.originalFare = originalTotalFare;
-  booking.discountAmount = discountAmount;
-  booking.couponCode = couponCode || null;
-  payment.payment_amount = finalTotalFare;
-
-  const paymentAmount = parseFloat(payment.payment_amount);
-  if (!Number.isFinite(finalTotalFare) || finalTotalFare < 0) {
-    return res.status(400).json({ error: 'Total fare must be a non-negative number' });
-  }
-  if (Math.abs(finalTotalFare - paymentAmount) > 0.01) {
-    return res.status(400).json({ error: 'Total fare does not match payment amount' });
-  }
-
-  let transaction;
-  try {
-    // Validate user
-    const user = await models.User.findByPk(booking.bookedUserId);
-    if (!user) {
-      return res.status(400).json({ error: `Invalid bookedUserId: ${booking.bookedUserId}` });
-    }
-
-    transaction = await models.sequelize.transaction();
-
-    // Authenticate admin for ADMIN mode
-    if (payment.payment_mode === 'ADMIN') {
-      const token = req.headers.authorization?.startsWith('Bearer ')
-        ? req.headers.authorization.split(' ')[1]
-        : req.headers.token || req.cookies?.token;
-
-      if (!token) {
-        throw new Error('Unauthorized: No token provided for admin booking');
-      }
-
-      let decoded;
-      try {
-        decoded = jwt.verify(token, process.env.JWT_SECRET);
-        if (String(decoded.role) !== '1') {
-          throw new Error('Forbidden: Only admins can use ADMIN payment mode');
-        }
-        if (
-          String(decoded.id) !== String(booking.bookedUserId) ||
-          String(decoded.id) !== String(billing.user_id) ||
-          String(decoded.id) !== String(payment.user_id)
-        ) {
-          throw new Error('User ID mismatch in booking, billing, or payment');
-        }
-      } catch (jwtErr) {
-        throw new Error(`Invalid token: ${jwtErr.message}`);
-      }
-
-      payment.payment_status = 'SUCCESS';
-      payment.payment_id = `ADMIN_${Date.now()}`;
-      payment.order_id = `ADMIN_${Date.now()}`;
-      payment.razorpay_signature = null;
-      payment.message = 'Admin booking (no payment required)';
-    } else if (payment.payment_mode === 'RAZORPAY') {
-      if (!payment.payment_id || !payment.order_id || !payment.razorpay_signature) {
-        throw new Error('Missing Razorpay payment fields: payment_id, order_id, or razorpay_signature');
-      }
-      const isValidSignature = await verifyPayment({
-        order_id: payment.order_id,
-        payment_id: payment.payment_id,
-        signature: payment.razorpay_signature,
-      });
-      if (!isValidSignature) {
-        throw new Error('Invalid Razorpay signature');
-      }
-    } else if (payment.payment_mode === 'AGENT') {
-      const agent = await models.User.findByPk(payment.user_id);
-      if (!agent || agent.role !== 2) {
-        throw new Error('Invalid agent ID for agent booking');
-      }
-
-      booking.agentId = payment.user_id;
-
-      payment.payment_status = 'SUCCESS';
-      payment.payment_id = `AGENT_${Date.now()}`;
-      payment.order_id = `AGENT_${Date.now()}`;
-      payment.razorpay_signature = null;
-      payment.message = 'Agent booking (no payment required)';
-    }
-
-    // Continue with the same booking logic as completeBooking...
-    // (seat verification, booking creation, etc.)
-    
-    // After successful booking, record coupon usage
-    if (appliedCoupon) {
-      const CouponUsage = require('../model/couponUsage');
-      
-      // Increment coupon used_count
-      await appliedCoupon.increment('used_count', { transaction });
-
-      // Record usage
-      await CouponUsage.create({
-        coupon_id: appliedCoupon.id,
-        user_id: booking.bookedUserId,
-        booking_id: null, // Will be updated after booking is created
-        original_amount: originalTotalFare,
-        discount_amount: discountAmount,
-        final_amount: finalTotalFare
-      }, { transaction });
-    }
-
-    // Call the original completeBooking logic here
-    // For now, returning success with discount info
-    await transaction.commit();
-
-    return res.status(200).json({
-      message: 'Booking completed successfully with discount',
-      booking: {
-        ...booking,
-        originalFare: originalTotalFare,
-        discountAmount: discountAmount,
-        finalFare: finalTotalFare,
-        couponApplied: couponCode || null
-      },
-      discount: appliedCoupon ? {
-        code: appliedCoupon.code,
-        type: appliedCoupon.discount_type,
-        value: appliedCoupon.discount_value,
-        saved: discountAmount
-      } : null
-    });
-
-  } catch (error) {
-    if (transaction) await transaction.rollback();
-    console.error('Complete booking with discount error:', error);
-    return res.status(500).json({ error: error.message || 'Failed to complete booking' });
-  }
 }
 
 module.exports = {
