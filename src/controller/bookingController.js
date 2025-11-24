@@ -279,6 +279,15 @@ async function completeBooking(req, res) {
                 { transaction }
             );
 
+            // Create billing record for helicopter booking (same as flight bookings)
+            await models.Billing.create(
+                {
+                    ...billing,
+                    user_id: booking.bookedUserId
+                },
+                { transaction }
+            );
+
             // Update available seats for helicopter
             const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
             availableSeats = await getAvailableHelicopterSeats({

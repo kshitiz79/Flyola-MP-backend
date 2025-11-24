@@ -434,8 +434,8 @@ router.post('/create', authenticate([1]), async (req, res) => {
     return res.status(400).json({ error: 'Name, email, and role are required' });
   }
 
-  if (![1, 2, 3, 4, 5, 6, 7].includes(Number(role))) {
-    return res.status(400).json({ error: 'Role must be 1 (Admin), 2 (Booking Agent), 3 (Regular User), 4 (Head Admin), 5 (Chairman Admin), 6 (Director Admin), or 7 (Accounts Admin)' });
+  if (![1, 2, 3, 4, 5, 6, 7, 8].includes(Number(role))) {
+    return res.status(400).json({ error: 'Role must be 1 (Admin), 2 (Booking Agent), 3 (Regular User), 4 (Head Admin), 5 (Chairman Admin), 6 (Director Admin), 7 (Accounts Admin), or 8 (MP Tourism Portal)' });
   }
 
   try {
@@ -522,8 +522,8 @@ router.put('/:id', authenticate([1]), async (req, res) => {
     }
 
     // Validate role if provided
-    if (role && ![1, 2, 3, 4, 5, 6, 7].includes(Number(role))) {
-      return res.status(400).json({ error: 'Role must be 1 (Admin), 2 (Booking Agent), 3 (Regular User), 4 (Head Admin), 5 (Chairman Admin), 6 (Director Admin), or 7 (Accounts Admin)' });
+    if (role && ![1, 2, 3, 4, 5, 6, 7, 8].includes(Number(role))) {
+      return res.status(400).json({ error: 'Role must be 1 (Admin), 2 (Booking Agent), 3 (Regular User), 4 (Head Admin), 5 (Chairman Admin), 6 (Director Admin), 7 (Accounts Admin), or 8 (MP Tourism Portal)' });
     }
 
     // Update fields
