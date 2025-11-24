@@ -552,9 +552,11 @@ router.put('/:id', authenticate([1]), async (req, res) => {
       user: userResponse
     });
   } catch (err) {
+    console.error('Error updating user:', err);
     return res.status(500).json({
-      error: 'Server error',
-      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+      error: 'Server error while updating user',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
   }
 });
