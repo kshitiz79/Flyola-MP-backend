@@ -536,13 +536,19 @@ router.put('/:id', authenticate([1]), async (req, res) => {
     if (gender !== undefined) updateData.gender = gender;
     if (city !== undefined) updateData.city = city;
     if (state !== undefined) updateData.state = state;
+    
+    // Update timestamp
+    updateData.updated_at = new Date();
 
     // Hash new password if provided
     if (password) {
       updateData.password = await bcrypt.hash(password, 12);
     }
 
-    await user.update(updateData);
+    await user.update(updateData, {
+      validate: true,
+      fields: Object.keys(updateData)
+    });
 
 
     // Return updated user without password
