@@ -509,7 +509,7 @@ router.put('/:id', authenticate([1]), async (req, res) => {
     }
 
     // Check if number is being changed and if it already exists
-    if (number && number !== user.number) {
+    if (number && number !== '' && number !== user.number) {
       const existingNumber = await models.User.findOne({
         where: {
           number,
@@ -530,12 +530,12 @@ router.put('/:id', authenticate([1]), async (req, res) => {
     const updateData = {};
     if (name) updateData.name = name;
     if (email) updateData.email = email;
-    if (number !== undefined) updateData.number = number;
+    if (number !== undefined) updateData.number = number === '' ? null : number;
     if (role) updateData.role = Number(role);
-    if (dob !== undefined) updateData.dob = dob;
-    if (gender !== undefined) updateData.gender = gender;
-    if (city !== undefined) updateData.city = city;
-    if (state !== undefined) updateData.state = state;
+    if (dob !== undefined) updateData.dob = dob === '' ? null : dob;
+    if (gender !== undefined) updateData.gender = gender === '' ? null : gender;
+    if (city !== undefined) updateData.city = city === '' ? null : city;
+    if (state !== undefined) updateData.state = state === '' ? null : state;
     
     // Update timestamp
     updateData.updated_at = new Date();
