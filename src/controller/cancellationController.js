@@ -1,6 +1,7 @@
 const models = require('../model');
 const { Op } = require('sequelize');
 const dayjs = require('dayjs');
+const { sendCancellationEmail } = require('../utils/emailService');
 
 // Calculate refund amount based on cancellation policy
 const calculateRefundAmount = (totalFare, hoursBeforeDeparture) => {
@@ -144,6 +145,37 @@ const cancelBooking = async (req, res) => {
         bookDate: booking.bookDate,
         message: 'Seats released due to cancellation'
       });
+    }
+
+    // Send cancellation email to user
+    try {
+      const departureAirport = await models.Airport.findByPk(booking.FlightSchedule?.departure_airport_id);
+      const arrivalAirport = await models.Airport.findByPk(booking.FlightSchedule?.arrival_airport_id);
+      const flight = await models.Flight.findByPk(booking.FlightSchedule?.flight_id);
+      
+      const emailData = {
+        email: booking.email_id,
+        pnr: booking.pnr,
+        bookingNo: booking.bookingNo,
+        passengerName: booking.Passengers?.[0]?.name || 'Passenger',
+        departureCity: departureAirport?.city || 'Unknown',
+        arrivalCity: arrivalAirport?.city || 'Unknown',
+        departureDate: booking.bookDate,
+        departureTime: booking.FlightSchedule?.departure_time || 'N/A',
+        flightNumber: flight?.flight_number || 'N/A',
+        totalFare: totalFare,
+        refundAmount: refundAmount,
+        cancellationCharges: cancellationCharges,
+        cancelledBy: 'User',
+        cancellationReason: reason || 'User requested cancellation',
+        bookingType: 'flight'
+      };
+
+      await sendCancellationEmail(emailData);
+      console.log('✅ Cancellation email sent to:', booking.email_id);
+    } catch (emailError) {
+      console.error('❌ Failed to send cancellation email:', emailError);
+      // Don't fail the cancellation if email fails
     }
 
     res.json({
@@ -462,6 +494,34 @@ const adminCancelBooking = async (req, res) => {
 
     await transaction.commit();
 
+    // Send cancellation email to user
+    try {
+      const flight = await models.Flight.findByPk(booking.FlightSchedule?.flight_id);
+      
+      const emailData = {
+        email: booking.email_id,
+        pnr: booking.pnr,
+        bookingNo: booking.bookingNo,
+        passengerName: booking.Passengers?.[0]?.name || 'Passenger',
+        departureCity: booking.FlightSchedule?.DepartureAirport?.city || 'Unknown',
+        arrivalCity: booking.FlightSchedule?.ArrivalAirport?.city || 'Unknown',
+        departureDate: booking.bookDate,
+        departureTime: booking.FlightSchedule?.departure_time || 'N/A',
+        flightNumber: flight?.flight_number || 'N/A',
+        totalFare: totalFare,
+        refundAmount: refundAmount,
+        cancellationCharges: cancellationCharges,
+        cancelledBy: 'Admin',
+        cancellationReason: reason || `Admin cancellation - ${cancellationType === 'full' ? 'Full refund granted' : 'Policy-based refund'}`,
+        bookingType: 'flight'
+      };
+
+      await sendCancellationEmail(emailData);
+      console.log('✅ Admin cancellation email sent to:', booking.email_id);
+    } catch (emailError) {
+      console.error('❌ Failed to send admin cancellation email:', emailError);
+      // Don't fail the cancellation if email fails
+    }
 
     res.json({
       success: true,

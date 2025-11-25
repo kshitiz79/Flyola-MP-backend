@@ -1,6 +1,7 @@
 const models = require('../model');
 const { Op } = require('sequelize');
 const dayjs = require('dayjs');
+const { sendCancellationEmail } = require('../utils/emailService');
 
 // Calculate refund amount based on cancellation policy (same as flight)
 const calculateRefundAmount = (totalFare, hoursBeforeDeparture) => {
@@ -219,6 +220,35 @@ const adminCancelBooking = async (req, res) => {
 
         await transaction.commit();
 
+        // Send cancellation email to user
+        try {
+            const helicopter = await models.Helicopter.findByPk(booking.HelicopterSchedule?.helicopter_id);
+            
+            const emailData = {
+                email: booking.email_id,
+                pnr: booking.pnr,
+                bookingNo: booking.bookingNo,
+                passengerName: booking.Passengers?.[0]?.name || 'Passenger',
+                departureCity: booking.HelicopterSchedule?.DepartureLocation?.city || 'Unknown',
+                arrivalCity: booking.HelicopterSchedule?.ArrivalLocation?.city || 'Unknown',
+                departureDate: booking.bookDate,
+                departureTime: booking.HelicopterSchedule?.departure_time || 'N/A',
+                flightNumber: helicopter?.helicopter_number || 'N/A',
+                totalFare: totalFare,
+                refundAmount: refundAmount,
+                cancellationCharges: cancellationCharges,
+                cancelledBy: 'Admin',
+                cancellationReason: reason || `Admin cancellation - ${cancellationType === 'full' ? 'Full refund granted' : 'Policy-based refund'}`,
+                bookingType: 'helicopter'
+            };
+
+            await sendCancellationEmail(emailData);
+            console.log('✅ Admin helicopter cancellation email sent to:', booking.email_id);
+        } catch (emailError) {
+            console.error('❌ Failed to send admin helicopter cancellation email:', emailError);
+            // Don't fail the cancellation if email fails
+        }
+
         res.json({
             success: true,
             message: `Helicopter booking cancelled successfully with ${cancellationType === 'full' ? 'full refund' : 'policy-based refund'}`,
@@ -343,6 +373,37 @@ const cancelBooking = async (req, res) => {
         }
 
         await transaction.commit();
+
+        // Send cancellation email to user
+        try {
+            const departureHelipad = await models.Helipad.findByPk(booking.HelicopterSchedule?.departure_helipad_id);
+            const arrivalHelipad = await models.Helipad.findByPk(booking.HelicopterSchedule?.arrival_helipad_id);
+            const helicopter = await models.Helicopter.findByPk(booking.HelicopterSchedule?.helicopter_id);
+            
+            const emailData = {
+                email: booking.email_id,
+                pnr: booking.pnr,
+                bookingNo: booking.bookingNo,
+                passengerName: booking.Passengers?.[0]?.name || 'Passenger',
+                departureCity: departureHelipad?.city || 'Unknown',
+                arrivalCity: arrivalHelipad?.city || 'Unknown',
+                departureDate: booking.bookDate,
+                departureTime: booking.HelicopterSchedule?.departure_time || 'N/A',
+                flightNumber: helicopter?.helicopter_number || 'N/A',
+                totalFare: totalFare,
+                refundAmount: refundAmount,
+                cancellationCharges: cancellationCharges,
+                cancelledBy: 'User',
+                cancellationReason: reason || 'User requested cancellation',
+                bookingType: 'helicopter'
+            };
+
+            await sendCancellationEmail(emailData);
+            console.log('✅ Helicopter cancellation email sent to:', booking.email_id);
+        } catch (emailError) {
+            console.error('❌ Failed to send helicopter cancellation email:', emailError);
+            // Don't fail the cancellation if email fails
+        }
 
         res.json({
             success: true,

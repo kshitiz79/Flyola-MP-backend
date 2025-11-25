@@ -7,6 +7,7 @@ const models = {
   Payment: require('./payment'),
   Billing: require('./billing'),
   FlightSchedule: require('./flightSchedule'),
+  FlightScheduleException: require('./flightScheduleException'),
   Flight: require('./flight'),
   Airport: require('./airport'),
   User: require('./user'),

@@ -23,6 +23,26 @@ async function getFlightSchedules(req, res) {
     });
 
     let output = [];
+    
+    // Fetch exceptions for the month if querying by month
+    let exceptions = [];
+    if (monthQuery) {
+      const [year, month] = monthQuery.split('-').map(Number);
+      const startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
+      const endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
+      
+      exceptions = await models.FlightScheduleException.findAll({
+        where: {
+          exception_date: {
+            [models.Sequelize.Op.between]: [
+              format(startDate, 'yyyy-MM-dd'),
+              format(endDate, 'yyyy-MM-dd')
+            ]
+          }
+        }
+      });
+    }
+    
     if (monthQuery) {
       const [year, month] = monthQuery.split('-').map(Number);
       const startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
@@ -34,7 +54,27 @@ async function getFlightSchedules(req, res) {
 
         for (const schedule of rows) {
           const flight = schedule.Flight;
-          if (!flight || flight.departure_day !== weekday) continue;
+          
+          // Handle one-time flights
+          if (schedule.is_one_time === 1) {
+            // Only include if specific_date matches current date
+            if (schedule.specific_date !== departure_date) {
+              continue;
+            }
+          } else {
+            // Regular recurring schedule - check weekday
+            if (!flight || flight.departure_day !== weekday) continue;
+            
+            // Check for exception on this date
+            const exception = exceptions.find(
+              e => e.schedule_id === schedule.id && e.exception_date === departure_date
+            );
+            
+            // Skip if cancelled
+            if (exception && exception.override_status === 0) {
+              continue;
+            }
+          }
 
           let viaStopIds = [];
           try {
@@ -57,20 +97,65 @@ async function getFlightSchedules(req, res) {
             seatError = error.message;
           }
 
+          // Apply exception overrides if exists (only for recurring schedules)
+          let finalSchedule = { ...schedule.toJSON() };
+          let hasException = false;
+          
+          if (schedule.is_one_time === 0) {
+            const exception = exceptions.find(
+              e => e.schedule_id === schedule.id && e.exception_date === departure_date
+            );
+            
+            if (exception) {
+              hasException = true;
+              // Apply overrides
+              if (exception.override_price !== null) {
+                finalSchedule.price = exception.override_price;
+              }
+              if (exception.override_departure_time !== null) {
+                finalSchedule.departure_time = exception.override_departure_time;
+              }
+              if (exception.override_arrival_time !== null) {
+                finalSchedule.arrival_time = exception.override_arrival_time;
+              }
+              if (exception.override_status !== null) {
+                finalSchedule.status = exception.override_status;
+              }
+            }
+          }
+
           output.push({
-            ...schedule.toJSON(),
+            ...finalSchedule,
             via_stop_id: JSON.stringify(viaStopIds),
             departure_date,
             availableSeats,
             seatError: seatError || undefined,
+            is_special_flight: schedule.is_one_time === 1,
+            has_exception: hasException,
+            exception_type: hasException ? exceptions.find(e => e.schedule_id === schedule.id && e.exception_date === departure_date)?.exception_type : null,
           });
         }
       }
     } else {
       const bookDate = req.query.date || format(new Date(), 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
+      const weekday = format(new Date(bookDate), 'EEEE', { timeZone: 'Asia/Kolkata' });
+      
       const results = await Promise.all(
         rows.map(async (schedule) => {
           const flight = schedule.Flight;
+          
+          // Handle one-time flights
+          if (schedule.is_one_time === 1) {
+            if (schedule.specific_date !== bookDate) {
+              return null;
+            }
+          } else {
+            // Regular recurring schedule
+            if (!flight || flight.departure_day !== weekday) {
+              return null;
+            }
+          }
+          
           if (!flight) {
             return null;
           }
@@ -102,6 +187,7 @@ async function getFlightSchedules(req, res) {
             departure_date: bookDate,
             availableSeats,
             seatError: seatError || undefined,
+            is_special_flight: schedule.is_one_time === 1,
           };
         })
       );
@@ -116,8 +202,26 @@ async function getFlightSchedules(req, res) {
 
 async function addFlightSchedule(req, res) {
   const models = getModels();
-  const { via_stop_id, departure_airport_id, arrival_airport_id, flight_id, ...body } = req.body;
+  const { via_stop_id, departure_airport_id, arrival_airport_id, flight_id, is_one_time, specific_date, ...body } = req.body;
   try {
+    // Validation for one-time flights
+    if (is_one_time === 1 || is_one_time === true || is_one_time === '1') {
+      if (!specific_date) {
+        return res.status(400).json({ error: 'specific_date is required for one-time flights' });
+      }
+      
+      // Validate date format
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(specific_date)) {
+        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+      }
+      
+      // Ensure date is not in the past
+      const today = format(new Date(), 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
+      if (specific_date < today) {
+        return res.status(400).json({ error: 'specific_date must be today or in the future' });
+      }
+    }
+    
     // Validate departure and arrival airports
     const flight = await models.Flight.findByPk(flight_id);
     if (!flight) {
@@ -143,8 +247,15 @@ async function addFlightSchedule(req, res) {
       arrival_airport_id,
       flight_id,
       via_stop_id: JSON.stringify(validViaStopIds),
+      is_one_time: is_one_time ? 1 : 0,
+      specific_date: is_one_time ? specific_date : null,
     });
-    res.status(201).json({ id: schedule.id });
+    res.status(201).json({ 
+      id: schedule.id,
+      message: is_one_time 
+        ? `One-time special flight created for ${specific_date}` 
+        : 'Recurring schedule created'
+    });
   } catch (err) {
     res.status(500).json({ error: 'Failed to add flight schedule', details: err.message });
   }

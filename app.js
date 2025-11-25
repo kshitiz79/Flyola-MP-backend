@@ -74,6 +74,7 @@ app.use('/api/joyride-slots', require('./src/routes/joyRide'));
 app.use('/users', require('./src/routes/users'));
 app.use('/booked-seat', require('./src/routes/seatRoutes'));
 app.use('/flight-schedules', require('./src/routes/flightScheduleRoutes'));
+app.use('/schedule-exceptions', require('./src/routes/scheduleExceptionRoutes'));
 app.use('/airport', require('./src/routes/airport'));
 
 

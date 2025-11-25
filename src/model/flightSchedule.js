@@ -39,6 +39,17 @@ const FlightSchedule = sequelize.define(
             type: DataTypes.INTEGER,
             allowNull: false,
         },
+        is_one_time: {
+            type: DataTypes.TINYINT,
+            allowNull: false,
+            defaultValue: 0,
+            comment: '0=Recurring schedule, 1=One-time special flight',
+        },
+        specific_date: {
+            type: DataTypes.DATEONLY,
+            allowNull: true,
+            comment: 'Required if is_one_time=1, the exact date this flight runs',
+        },
         created_at: {
             type: DataTypes.DATE,
             defaultValue: DataTypes.NOW,
