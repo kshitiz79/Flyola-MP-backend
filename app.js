@@ -87,6 +87,7 @@ app.use('/helicopters', require('./src/routes/helicopters'));
 app.use('/helicopter-schedules', require('./src/routes/helicopterSchedules'));
 app.use('/helicopter-seat', require('./src/routes/helicopterSeatRoutes'));
 app.use('/api/admin', require('./src/routes/adminDashboard'));
+app.use('/system-settings', require('./src/routes/systemSettingsRoutes'));
 
 
 // Error handling middleware

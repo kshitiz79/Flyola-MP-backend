@@ -27,6 +27,7 @@ const models = {
   HelicopterPassenger: require('./helicopterPassenger'),
   HelicopterPayment: require('./helicopterPayment'),
   HelicopterRefund: require('./helicopterRefund'),
+  SystemSettings: require('./systemSettings'),
 
   sequelize,
   Sequelize,
