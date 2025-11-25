@@ -10,6 +10,7 @@ router.get('/details/:bookingId', helicopterCancellationController.getCancellati
 router.use(authenticate());
 
 router.post('/cancel/:bookingId', helicopterCancellationController.cancelBooking);
+router.get('/refunds', helicopterCancellationController.getUserHelicopterRefunds);
 
 // Admin routes
 router.post('/admin-cancel/:bookingId', helicopterCancellationController.adminCancelBooking);

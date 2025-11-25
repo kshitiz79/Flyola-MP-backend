@@ -510,9 +510,39 @@ const getAllHelicopterRefunds = async (req, res) => {
     }
 };
 
+// User: Get their own helicopter refunds
+const getUserHelicopterRefunds = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const refunds = await models.HelicopterRefund.findAll({
+            where: { user_id: userId },
+            include: [
+                {
+                    model: models.HelicopterBooking,
+                    attributes: ['id', 'pnr', 'bookingNo', 'totalFare', 'bookDate']
+                }
+            ],
+            order: [['requested_at', 'DESC']]
+        });
+
+        res.json({
+            success: true,
+            data: refunds
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch your helicopter refunds: ' + error.message
+        });
+    }
+};
+
 module.exports = {
     getCancellationDetails,
     adminCancelBooking,
     cancelBooking,
-    getAllHelicopterRefunds
+    getAllHelicopterRefunds,
+    getUserHelicopterRefunds
 };
