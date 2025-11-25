@@ -2318,6 +2318,115 @@ async function completeBookingWithDiscount(req, res) {
     }
 }
 
+// Get booking statistics for operations dashboard
+async function getBookingStats(req, res) {
+    try {
+        const { date, type } = req.query;
+        
+        // Calculate target date
+        let targetDate;
+        const now = dayjs().tz('Asia/Kolkata');
+        
+        if (date === 'today') {
+            targetDate = now.format('YYYY-MM-DD');
+        } else if (date === 'tomorrow') {
+            targetDate = now.add(1, 'day').format('YYYY-MM-DD');
+        } else if (date) {
+            targetDate = date;
+        } else {
+            return res.status(400).json({ error: 'Date parameter is required (today, tomorrow, or YYYY-MM-DD)' });
+        }
+
+        const stats = {};
+
+        // Count flight bookings if requested or no type specified
+        if (!type || type === 'flight' || type === 'all') {
+            const flightCount = await models.Booking.count({
+                where: {
+                    bookDate: {
+                        [Op.startsWith]: targetDate
+                    }
+                }
+            });
+            stats.flights = flightCount;
+        }
+
+        // Count helicopter bookings if requested or no type specified
+        if (!type || type === 'helicopter' || type === 'all') {
+            const helicopterCount = await models.HelicopterBooking.count({
+                where: {
+                    bookDate: {
+                        [Op.startsWith]: targetDate
+                    }
+                }
+            });
+            stats.helicopters = helicopterCount;
+        }
+
+        // Calculate total
+        stats.total = (stats.flights || 0) + (stats.helicopters || 0);
+        stats.date = targetDate;
+
+        res.json(stats);
+    } catch (error) {
+        console.error('Error fetching booking stats:', error);
+        res.status(500).json({ error: error.message });
+    }
+}
+
+// Get booking statistics for multiple dates (optimized for dashboard)
+async function getBookingStatsMultiple(req, res) {
+    try {
+        const now = dayjs().tz('Asia/Kolkata');
+        const today = now.format('YYYY-MM-DD');
+        const tomorrow = now.add(1, 'day').format('YYYY-MM-DD');
+
+        // Fetch all counts in parallel for maximum performance
+        const [
+            todayFlights,
+            tomorrowFlights,
+            todayHelicopters,
+            tomorrowHelicopters
+        ] = await Promise.all([
+            models.Booking.count({
+                where: { bookDate: { [Op.startsWith]: today } }
+            }),
+            models.Booking.count({
+                where: { bookDate: { [Op.startsWith]: tomorrow } }
+            }),
+            models.HelicopterBooking.count({
+                where: { bookDate: { [Op.startsWith]: today } }
+            }),
+            models.HelicopterBooking.count({
+                where: { bookDate: { [Op.startsWith]: tomorrow } }
+            })
+        ]);
+
+        res.json({
+            today: {
+                date: today,
+                flights: todayFlights,
+                helicopters: todayHelicopters,
+                total: todayFlights + todayHelicopters
+            },
+            tomorrow: {
+                date: tomorrow,
+                flights: tomorrowFlights,
+                helicopters: tomorrowHelicopters,
+                total: tomorrowFlights + tomorrowHelicopters
+            },
+            summary: {
+                totalFlights: todayFlights + tomorrowFlights,
+                totalHelicopters: todayHelicopters + tomorrowHelicopters,
+                grandTotal: todayFlights + tomorrowFlights + todayHelicopters + tomorrowHelicopters
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching booking stats:', error);
+        res.status(500).json({ error: error.message });
+    }
+}
+
 module.exports = {
     completeBooking,
     completeBookingWithDiscount,
@@ -2339,4 +2448,6 @@ module.exports = {
     cancelHelicopterBooking,
     rescheduleHelicopterBooking,
     getBookingsByUser,
+    getBookingStats,
+    getBookingStatsMultiple,
 }

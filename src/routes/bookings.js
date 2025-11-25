@@ -4,6 +4,10 @@ const router = express.Router();
 const bookingController = require('../controller/bookingController');
 const { authenticate } = require('../middleware/auth');
 
+// Stats endpoints (public for operations dashboard)
+router.get('/stats', bookingController.getBookingStats);
+router.get('/stats/dashboard', bookingController.getBookingStatsMultiple);
+
 router.get('/pnr', bookingController.getBookingByPnr);
 router.get('/by-user', bookingController.getBookingsByUser);
 router.get('/irctc-bookings', bookingController.getIrctcBookings);
