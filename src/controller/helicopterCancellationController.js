@@ -2,6 +2,7 @@ const models = require('../model');
 const { Op } = require('sequelize');
 const dayjs = require('dayjs');
 const { sendCancellationEmail } = require('../utils/emailService');
+const { processRefund } = require('../utils/razorpay');
 
 // Calculate refund amount based on cancellation policy (same as flight)
 const calculateRefundAmount = (totalFare, hoursBeforeDeparture) => {
@@ -190,6 +191,55 @@ const adminCancelBooking = async (req, res) => {
             cancellationCharges: cancellationCharges
         }, { transaction });
 
+        let razorpayRefundId = null;
+        let razorpayRefundStatus = null;
+
+        // Process Razorpay refund if applicable
+        if (refundAmount > 0) {
+            try {
+                // Get payment details
+                const payment = await models.HelicopterPayment.findOne({
+                    where: { helicopter_booking_id: booking.id },
+                    transaction
+                });
+
+                if (payment && payment.payment_mode === 'RAZORPAY' && payment.payment_id) {
+                    console.log(`🔄 Processing Razorpay refund for Helicopter Payment ID: ${payment.payment_id}`);
+
+                    const razorpayRefund = await processRefund({
+                        paymentId: payment.payment_id,
+                        amount: refundAmount,
+                        speed: 'optimum', // Instant refund
+                        notes: {
+                            helicopter_booking_id: booking.id,
+                            booking_type: 'helicopter',
+                            reason: adminNotes || 'Helicopter booking cancellation'
+                        }
+                    });
+
+                    razorpayRefundId = razorpayRefund.refundId;
+                    razorpayRefundStatus = razorpayRefund.status;
+
+                    console.log(`✅ Helicopter Razorpay refund successful: ${razorpayRefundId}`);
+
+                    // Update payment status
+                    await payment.update({
+                        payment_status: 'REFUNDED',
+                        refund_id: razorpayRefundId
+                    }, { transaction });
+                } else {
+                    console.log(`ℹ️ Skipping Razorpay refund - Payment mode: ${payment?.payment_mode || 'N/A'}`);
+                }
+            } catch (razorpayError) {
+                console.error('❌ Helicopter Razorpay refund failed:', razorpayError.message);
+                await transaction.rollback();
+                return res.status(500).json({
+                    success: false,
+                    error: `Razorpay refund failed: ${razorpayError.message}. Please try again or process manually.`
+                });
+            }
+        }
+
         // Create refund record
         const refund = await models.HelicopterRefund.create({
             helicopter_booking_id: booking.id,
@@ -203,7 +253,9 @@ const adminCancelBooking = async (req, res) => {
             requested_at: new Date(),
             processed_at: new Date(),
             processed_by: req.user.id, // Admin user ID
-            admin_notes: adminNotes || `Admin ${cancellationType === 'full' ? 'full' : 'policy-based'} refund cancellation`
+            admin_notes: adminNotes || `Admin ${cancellationType === 'full' ? 'full' : 'policy-based'} refund cancellation`,
+            razorpay_refund_id: razorpayRefundId,
+            razorpay_refund_status: razorpayRefundStatus
         }, { transaction });
 
         // Release seats if booking has seat assignments
@@ -428,8 +480,39 @@ const cancelBooking = async (req, res) => {
     }
 };
 
+// Admin: Get all helicopter refunds
+const getAllHelicopterRefunds = async (req, res) => {
+    try {
+        const refunds = await models.HelicopterRefund.findAll({
+            include: [
+                {
+                    model: models.HelicopterBooking,
+                    attributes: ['id', 'pnr', 'bookingNo', 'totalFare', 'bookDate']
+                },
+                {
+                    model: models.User,
+                    attributes: ['id', 'name', 'email']
+                }
+            ],
+            order: [['requested_at', 'DESC']]
+        });
+
+        res.json({
+            success: true,
+            data: refunds
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch helicopter refunds: ' + error.message
+        });
+    }
+};
+
 module.exports = {
     getCancellationDetails,
     adminCancelBooking,
-    cancelBooking
+    cancelBooking,
+    getAllHelicopterRefunds
 };

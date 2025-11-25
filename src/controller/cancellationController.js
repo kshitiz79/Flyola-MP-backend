@@ -2,6 +2,7 @@ const models = require('../model');
 const { Op } = require('sequelize');
 const dayjs = require('dayjs');
 const { sendCancellationEmail } = require('../utils/emailService');
+const { processRefund } = require('../utils/razorpay');
 
 // Calculate refund amount based on cancellation policy
 const calculateRefundAmount = (totalFare, hoursBeforeDeparture) => {
@@ -309,7 +310,7 @@ const getUserRefunds = async (req, res) => {
 };
 
 // Admin: Process refund
-const processRefund = async (req, res) => {
+const processRefundAdmin = async (req, res) => {
   const { refundId } = req.params;
   const { status, adminNotes } = req.body;
 
@@ -325,7 +326,12 @@ const processRefund = async (req, res) => {
     transaction = await models.sequelize.transaction();
 
     const refund = await models.Refund.findByPk(refundId, {
-      include: [{ model: models.Booking }],
+      include: [
+        { 
+          model: models.Booking,
+          include: [{ model: models.Payment, as: 'Payments' }]
+        }
+      ],
       transaction
     });
 
@@ -345,18 +351,68 @@ const processRefund = async (req, res) => {
       });
     }
 
+    let razorpayRefundId = null;
+    let razorpayRefundStatus = null;
+
+    // If approved, process Razorpay refund
+    if (status === 'APPROVED' && refund.refund_amount > 0) {
+      try {
+        // Get payment details
+        const payment = refund.Booking?.Payments?.[0];
+        
+        if (!payment) {
+          throw new Error('Payment record not found for this booking');
+        }
+
+        // Only process Razorpay refund if payment was made via Razorpay
+        if (payment.payment_mode === 'RAZORPAY' && payment.payment_id) {
+          console.log(`🔄 Processing Razorpay refund for Payment ID: ${payment.payment_id}`);
+          
+          const razorpayRefund = await processRefund({
+            paymentId: payment.payment_id,
+            amount: refund.refund_amount,
+            speed: 'optimum', // Instant refund (if supported by bank)
+            notes: {
+              booking_id: refund.booking_id,
+              refund_id: refund.id,
+              reason: adminNotes || 'Booking cancellation'
+            }
+          });
+
+          razorpayRefundId = razorpayRefund.refundId;
+          razorpayRefundStatus = razorpayRefund.status;
+
+          console.log(`✅ Razorpay refund successful: ${razorpayRefundId}`);
+        } else {
+          console.log(`ℹ️ Skipping Razorpay refund - Payment mode: ${payment.payment_mode}`);
+        }
+      } catch (razorpayError) {
+        console.error('❌ Razorpay refund failed:', razorpayError.message);
+        await transaction.rollback();
+        return res.status(500).json({
+          success: false,
+          error: `Razorpay refund failed: ${razorpayError.message}. Please try again or process manually.`
+        });
+      }
+    }
+
     // Update refund status
     await refund.update({
       refund_status: status,
       admin_notes: adminNotes,
       processed_at: new Date(),
-      processed_by: req.user?.id
+      processed_by: req.user?.id,
+      razorpay_refund_id: razorpayRefundId,
+      razorpay_refund_status: razorpayRefundStatus
     }, { transaction });
 
     // Update payment status
     if (status === 'APPROVED') {
       await models.Payment.update(
-        { payment_status: 'REFUNDED' },
+        { 
+          payment_status: 'REFUNDED',
+          refund_id: razorpayRefundId
+        },
         { 
           where: { booking_id: refund.booking_id },
           transaction 
@@ -368,8 +424,12 @@ const processRefund = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Refund ${status.toLowerCase()} successfully`,
-      data: refund
+      message: `Refund ${status.toLowerCase()} successfully${razorpayRefundId ? ' and processed via Razorpay' : ''}`,
+      data: {
+        ...refund.toJSON(),
+        razorpay_refund_id: razorpayRefundId,
+        razorpay_refund_status: razorpayRefundStatus
+      }
     });
 
   } catch (error) {
@@ -580,7 +640,7 @@ module.exports = {
   cancelBooking,
   getCancellationDetails,
   getUserRefunds,
-  processRefund,
+  processRefund: processRefundAdmin,
   adminCancelBooking,
   getAllRefunds
 };
