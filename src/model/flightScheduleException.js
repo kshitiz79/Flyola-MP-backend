@@ -10,7 +10,7 @@ const FlightScheduleException = sequelize.define(
       autoIncrement: true,
     },
     schedule_id: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.BIGINT.UNSIGNED,
       allowNull: false,
     },
     exception_date: {
