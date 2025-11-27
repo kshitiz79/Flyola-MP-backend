@@ -101,6 +101,109 @@ async function completeBooking(req, res) {
 
     let transaction;
     try {
+        // IDEMPOTENCY CHECK: Prevent duplicate bookings for same payment
+        if (payment.payment_id && payment.payment_id !== 'PENDING' && !payment.payment_id.startsWith('ADMIN_') && !payment.payment_id.startsWith('AGENT_')) {
+            console.log('[Idempotency] Checking for existing booking with payment_id:', payment.payment_id);
+            
+            try {
+                // Check if this payment_id already has a booking (for flight bookings)
+                const existingPayment = await models.Payment.findOne({
+                    where: { payment_id: payment.payment_id }
+                });
+                
+                if (existingPayment && existingPayment.booking_id) {
+                    // Booking already exists for this payment
+                    const existingBooking = await models.Booking.findByPk(existingPayment.booking_id, {
+                        include: [
+                            { model: models.Passenger, as: 'Passengers' },
+                            { model: models.BookedSeat, as: 'BookedSeats' }
+                        ]
+                    });
+                    
+                    if (existingBooking) {
+                        console.log('[Idempotency] Returning existing booking for payment:', payment.payment_id);
+                        
+                        return res.status(200).json({
+                            booking: {
+                                id: existingBooking.id,
+                                pnr: existingBooking.pnr,
+                                bookingNo: existingBooking.bookingNo,
+                                bookingStatus: existingBooking.bookingStatus,
+                                paymentStatus: existingBooking.paymentStatus,
+                                bookDate: existingBooking.bookDate,
+                                totalFare: existingBooking.totalFare,
+                                noOfPassengers: existingBooking.noOfPassengers,
+                                contact_no: existingBooking.contact_no,
+                                email_id: existingBooking.email_id,
+                                bookedSeats: existingBooking.BookedSeats?.map(s => s.seat_label) || [],
+                                bookingType: 'flight',
+                            },
+                            passengers: existingBooking.Passengers?.map((p, index) => ({
+                                name: p.name,
+                                fullName: p.name,
+                                title: p.title,
+                                age: p.age,
+                                type: p.type,
+                                dob: p.dob,
+                                seat: existingBooking.BookedSeats?.[index]?.seat_label || 'Not Assigned',
+                            })) || [],
+                            availableSeats: [], // Not needed for existing booking
+                            message: 'Booking already exists for this payment (idempotency check)'
+                        });
+                    }
+                }
+                
+                // Also check helicopter payments
+                const existingHelicopterPayment = await models.HelicopterPayment.findOne({
+                    where: { payment_id: payment.payment_id }
+                });
+                
+                if (existingHelicopterPayment && existingHelicopterPayment.helicopter_booking_id) {
+                    const existingBooking = await models.HelicopterBooking.findByPk(existingHelicopterPayment.helicopter_booking_id, {
+                        include: [
+                            { model: models.HelicopterPassenger, as: 'Passengers' },
+                            { model: models.HelicopterBookedSeat, as: 'BookedSeats' }
+                        ]
+                    });
+                    
+                    if (existingBooking) {
+                        console.log('[Idempotency] Returning existing helicopter booking for payment:', payment.payment_id);
+                        
+                        return res.status(200).json({
+                            booking: {
+                                id: existingBooking.id,
+                                pnr: existingBooking.pnr,
+                                bookingNo: existingBooking.bookingNo,
+                                bookingStatus: existingBooking.bookingStatus,
+                                paymentStatus: existingBooking.paymentStatus,
+                                bookDate: existingBooking.bookDate,
+                                totalFare: existingBooking.totalFare,
+                                noOfPassengers: existingBooking.noOfPassengers,
+                                contact_no: existingBooking.contact_no,
+                                email_id: existingBooking.email_id,
+                                bookedSeats: existingBooking.BookedSeats?.map(s => s.seat_label) || [],
+                                bookingType: 'helicopter',
+                            },
+                            passengers: existingBooking.Passengers?.map((p, index) => ({
+                                name: p.name,
+                                fullName: p.name,
+                                title: p.title,
+                                age: p.age,
+                                type: p.type,
+                                dob: p.dob,
+                                seat: existingBooking.BookedSeats?.[index]?.seat_label || 'Not Assigned',
+                            })) || [],
+                            availableSeats: [],
+                            message: 'Helicopter booking already exists for this payment (idempotency check)'
+                        });
+                    }
+                }
+            } catch (idempotencyError) {
+                console.error('[Idempotency] Check failed:', idempotencyError);
+                // Continue with booking creation if idempotency check fails
+            }
+        }
+
         // Validate user
         const user = await models.User.findByPk(booking.bookedUserId);
         if (!user) {

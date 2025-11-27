@@ -91,6 +91,38 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// Token refresh endpoint - CRITICAL for preventing payment-booking failures
+router.post('/refresh-token', authenticate(), async (req, res) => {
+  try {
+    console.log('[Token Refresh] Refreshing token for user:', req.user.id);
+    
+    // User is already authenticated by middleware, generate fresh token
+    const payload = {
+      id: req.user.id,
+      email: req.user.email,
+      role: req.user.role,
+      remember_token: req.user.remember_token || null
+    };
+    
+    const newToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' });
+    
+    console.log('[Token Refresh] New token generated successfully');
+    
+    return res.json({
+      success: true,
+      token: newToken,
+      expiresIn: 86400, // 24 hours in seconds
+      message: 'Token refreshed successfully'
+    });
+  } catch (error) {
+    console.error('[Token Refresh] Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to refresh token'
+    });
+  }
+});
+
 router.post('/forgot-password', async (req, res) => {
   const { email } = req.body;
 
