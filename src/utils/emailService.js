@@ -321,6 +321,7 @@ const sendBookingConfirmationEmail = async (bookingData) => {
             <p><strong>Route:</strong> ${departureCity} → ${arrivalCity}</p>
             <p><strong>Date:</strong> ${departureDate}</p>
             <p><strong>Time:</strong> ${departureTime} - ${arrivalTime}</p>
+            <p><strong>Seat(s):</strong> ${seatNumbers}</p>
             <p><strong>Total Fare:</strong> ₹${parseFloat(totalFare).toLocaleString('en-IN')}</p>
             <p>Thank you for choosing Flyola!</p>
           </div>

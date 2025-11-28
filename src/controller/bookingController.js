@@ -2,6 +2,7 @@ const models = require('../model');
 const { getAvailableSeats } = require('../utils/seatUtils');
 const { verifyPayment } = require('../utils/razorpay');
 const { createPaymentUtil } = require('./paymentController');
+const { sendBookingConfirmationEmail } = require('../utils/emailService');
 const { v4: uuidv4 } = require('uuid');
 const dayjs = require('dayjs');
 const jwt = require('jsonwebtoken');
@@ -104,13 +105,13 @@ async function completeBooking(req, res) {
         // IDEMPOTENCY CHECK: Prevent duplicate bookings for same payment
         if (payment.payment_id && payment.payment_id !== 'PENDING' && !payment.payment_id.startsWith('ADMIN_') && !payment.payment_id.startsWith('AGENT_')) {
             console.log('[Idempotency] Checking for existing booking with payment_id:', payment.payment_id);
-            
+
             try {
                 // Check if this payment_id already has a booking (for flight bookings)
                 const existingPayment = await models.Payment.findOne({
                     where: { payment_id: payment.payment_id }
                 });
-                
+
                 if (existingPayment && existingPayment.booking_id) {
                     // Booking already exists for this payment
                     const existingBooking = await models.Booking.findByPk(existingPayment.booking_id, {
@@ -119,10 +120,10 @@ async function completeBooking(req, res) {
                             { model: models.BookedSeat, as: 'BookedSeats' }
                         ]
                     });
-                    
+
                     if (existingBooking) {
                         console.log('[Idempotency] Returning existing booking for payment:', payment.payment_id);
-                        
+
                         return res.status(200).json({
                             booking: {
                                 id: existingBooking.id,
@@ -152,12 +153,12 @@ async function completeBooking(req, res) {
                         });
                     }
                 }
-                
+
                 // Also check helicopter payments
                 const existingHelicopterPayment = await models.HelicopterPayment.findOne({
                     where: { payment_id: payment.payment_id }
                 });
-                
+
                 if (existingHelicopterPayment && existingHelicopterPayment.helicopter_booking_id) {
                     const existingBooking = await models.HelicopterBooking.findByPk(existingHelicopterPayment.helicopter_booking_id, {
                         include: [
@@ -165,10 +166,10 @@ async function completeBooking(req, res) {
                             { model: models.HelicopterBookedSeat, as: 'BookedSeats' }
                         ]
                     });
-                    
+
                     if (existingBooking) {
                         console.log('[Idempotency] Returning existing helicopter booking for payment:', payment.payment_id);
-                        
+
                         return res.status(200).json({
                             booking: {
                                 id: existingBooking.id,
@@ -462,6 +463,85 @@ async function completeBooking(req, res) {
                 availableSeats: availableSeats,
                 bookingType: isHelicopterBooking ? 'helicopter' : 'flight',
             });
+        }
+
+        // Send confirmation emails
+        try {
+            // Fetch schedule details for email
+            let scheduleDetails = {};
+
+            if (isHelicopterBooking) {
+                const fullHelicopterSchedule = await models.HelicopterSchedule.findByPk(bookedSeat.schedule_id, {
+                    include: [
+                        { model: models.Helipad, as: 'DepartureHelipad' },
+                        { model: models.Helipad, as: 'ArrivalHelipad' },
+                        { model: models.Helicopter, as: 'Helicopter' }
+                    ]
+                });
+
+                if (fullHelicopterSchedule) {
+                    scheduleDetails = {
+                        departureCity: fullHelicopterSchedule.DepartureHelipad?.helipad_name || 'N/A',
+                        arrivalCity: fullHelicopterSchedule.ArrivalHelipad?.helipad_name || 'N/A',
+                        departureTime: fullHelicopterSchedule.departure_time,
+                        arrivalTime: fullHelicopterSchedule.arrival_time,
+                        flightNumber: fullHelicopterSchedule.Helicopter?.helicopter_number || 'N/A',
+                    };
+                }
+            } else {
+                const fullFlightSchedule = await models.FlightSchedule.findByPk(bookedSeat.schedule_id, {
+                    include: [
+                        { model: models.Airport, as: 'DepartureAirport' },
+                        { model: models.Airport, as: 'ArrivalAirport' },
+                        { model: models.Flight, as: 'Flight' }
+                    ]
+                });
+
+                if (fullFlightSchedule) {
+                    scheduleDetails = {
+                        departureCity: fullFlightSchedule.DepartureAirport?.airport_name || 'N/A',
+                        arrivalCity: fullFlightSchedule.ArrivalAirport?.airport_name || 'N/A',
+                        departureTime: fullFlightSchedule.departure_time,
+                        arrivalTime: fullFlightSchedule.arrival_time,
+                        flightNumber: fullFlightSchedule.Flight?.flight_number || 'N/A',
+                    };
+                }
+            }
+
+            const emailData = {
+                pnr: newBooking.pnr,
+                bookingNo: newBooking.bookingNo,
+                passengerName: passengers[0].name,
+                departureCity: scheduleDetails.departureCity,
+                arrivalCity: scheduleDetails.arrivalCity,
+                departureDate: newBooking.bookDate,
+                departureTime: scheduleDetails.departureTime,
+                arrivalTime: scheduleDetails.arrivalTime,
+                flightNumber: scheduleDetails.flightNumber,
+                totalFare: newBooking.totalFare,
+                seatNumbers: bookedSeat.seat_labels.join(', '),
+                bookingType: isHelicopterBooking ? 'helicopter' : 'flight',
+                email: booking.email_id
+            };
+
+            // Send to booking email
+            if (booking.email_id) {
+                await sendBookingConfirmationEmail({
+                    ...emailData,
+                    email: booking.email_id
+                });
+            }
+
+            // Send to registered user email if different
+            if (user && user.email && user.email !== booking.email_id) {
+                await sendBookingConfirmationEmail({
+                    ...emailData,
+                    email: user.email
+                });
+            }
+
+        } catch (emailError) {
+            console.error('Failed to send confirmation emails:', emailError);
         }
 
         // Return complete booking data with PNR and all details
@@ -2425,11 +2505,11 @@ async function completeBookingWithDiscount(req, res) {
 async function getBookingStats(req, res) {
     try {
         const { date, type } = req.query;
-        
+
         // Calculate target date
         let targetDate;
         const now = dayjs().tz('Asia/Kolkata');
-        
+
         if (date === 'today') {
             targetDate = now.format('YYYY-MM-DD');
         } else if (date === 'tomorrow') {
