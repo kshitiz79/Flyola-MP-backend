@@ -251,7 +251,7 @@ router.post('/refresh-token', async (req, res) => {
       role: Number(user.role),
       remember_token: user.remember_token || null
     };
-    const newToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const newToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie('token', newToken, buildCookieOptions());
     return res.json({
@@ -316,7 +316,7 @@ router.post('/register', async (req, res) => {
       role: 3,
       remember_token: null
     };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie('token', token, buildCookieOptions());
 
@@ -355,7 +355,7 @@ router.post('/register-admin', async (req, res) => {
     });
 
     const payload = { id: newUser.id, email, role: 1, remember_token };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie('token', token, buildCookieOptions());
     return res.status(201).json({
@@ -781,7 +781,7 @@ router.post('/register-booking-agent', async (req, res) => {
 
     // Prepare the JWT token payload
     const payload = { id: newUser.id, email, role: 2, remember_token: null };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     // Respond with the token and user information
     res.cookie('token', token, buildCookieOptions());
@@ -814,7 +814,7 @@ router.post('/register-head-admin', async (req, res) => {
     });
 
     const payload = { id: newUser.id, email, role: 4, remember_token: null };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie('token', token, buildCookieOptions());
     return res.status(201).json({
@@ -846,7 +846,7 @@ router.post('/register-chairman-admin', async (req, res) => {
     });
 
     const payload = { id: newUser.id, email, role: 5, remember_token: null };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie('token', token, buildCookieOptions());
     return res.status(201).json({
@@ -878,7 +878,7 @@ router.post('/register-director-admin', async (req, res) => {
     });
 
     const payload = { id: newUser.id, email, role: 6, remember_token: null };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie('token', token, buildCookieOptions());
     return res.status(201).json({
@@ -910,7 +910,7 @@ router.post('/register-accounts-admin', async (req, res) => {
     });
 
     const payload = { id: newUser.id, email, role: 7, remember_token: null };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.cookie('token', token, buildCookieOptions());
     return res.status(201).json({
@@ -981,7 +981,7 @@ router.post(
           email: user.email,
           role: Number(user.role),
         };
-        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
         return res.json({
           message: 'Login successful',
           token,
@@ -1003,7 +1003,7 @@ router.post(
           email: user.email,
           role: Number(user.role),
         };
-        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
         return res.status(201).json({
           message: 'User created and logged in successfully',
           token,
