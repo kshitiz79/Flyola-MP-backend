@@ -15,6 +15,7 @@ async function getFlightSchedules(req, res) {
   const models = getModels();
   const isUserRequest = req.query.user === 'true';
   const monthQuery = req.query.month;
+  const startDateParam = req.query.start_date; // Support mobile app parameter
   try {
     const where = isUserRequest ? { status: 1 } : {};
     const rows = await models.FlightSchedule.findAll({
@@ -24,13 +25,26 @@ async function getFlightSchedules(req, res) {
 
     let output = [];
     
-    // Fetch exceptions for the month if querying by month
-    let exceptions = [];
+    // Determine date range - support both 'month' and 'start_date' parameters
+    let startDate, endDate;
     if (monthQuery) {
       const [year, month] = monthQuery.split('-').map(Number);
-      const startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
-      const endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
-      
+      startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
+      endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
+    } else if (startDateParam) {
+      // If start_date is provided, use it and calculate end of that month
+      const parsedStart = toZonedTime(new Date(startDateParam), 'Asia/Kolkata');
+      if (!isNaN(parsedStart)) {
+        const year = parsedStart.getFullYear();
+        const month = parsedStart.getMonth();
+        startDate = parsedStart;
+        endDate = toZonedTime(new Date(year, month + 1, 0), 'Asia/Kolkata');
+      }
+    }
+    
+    // Fetch exceptions for the date range if querying by month or start_date
+    let exceptions = [];
+    if (startDate && endDate) {
       exceptions = await models.FlightScheduleException.findAll({
         where: {
           exception_date: {
@@ -43,10 +57,7 @@ async function getFlightSchedules(req, res) {
       });
     }
     
-    if (monthQuery) {
-      const [year, month] = monthQuery.split('-').map(Number);
-      const startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
-      const endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
+    if (startDate && endDate) {
 
       for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
         const departure_date = format(d, 'yyyy-MM-dd', { timeZone: 'Asia/Kolkata' });
