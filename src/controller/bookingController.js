@@ -288,7 +288,7 @@ async function completeBooking(req, res) {
             if (helicopterSchedule) {
                 isHelicopterBooking = true;
                 // This is a helicopter booking - use helicopter seat validation
-                const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
+                const { getAvailableHelicopterSeats } = require('../utils/helicopterSeatUtils');
                 availableSeats = await getAvailableHelicopterSeats({
                     models,
                     schedule_id: bookedSeat.schedule_id,
@@ -393,7 +393,7 @@ async function completeBooking(req, res) {
             );
 
             // Update available seats for helicopter
-            const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
+            const { getAvailableHelicopterSeats } = require('../utils/helicopterSeatUtils');
             availableSeats = await getAvailableHelicopterSeats({
                 models,
                 schedule_id: bookedSeat.schedule_id,
@@ -885,7 +885,7 @@ async function bookHelicopterSeatsWithoutPayment(req, res) {
         let result;
         await models.sequelize.transaction(async (t) => {
             // Get available helicopter seats
-            const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
+            const { getAvailableHelicopterSeats } = require('../utils/helicopterSeatUtils');
             const availableSeats = await getAvailableHelicopterSeats({
                 models,
                 schedule_id: bookedSeat.schedule_id,
@@ -1083,7 +1083,7 @@ async function cancelHelicopterBooking(req, res) {
         await booking.destroy({ transaction: t });
 
         // Update available seats for helicopter
-        const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
+        const { getAvailableHelicopterSeats } = require('../utils/helicopterSeatUtils');
         const updatedAvailableSeats = await getAvailableHelicopterSeats({
             models,
             schedule_id: booking.schedule_id,
@@ -1198,7 +1198,7 @@ async function rescheduleHelicopterBooking(req, res) {
         }
 
         // Get available helicopter seats
-        const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
+        const { getAvailableHelicopterSeats } = require('../utils/helicopterSeatUtils');
         const availableSeats = await getAvailableHelicopterSeats({
             models,
             schedule_id: newScheduleId,

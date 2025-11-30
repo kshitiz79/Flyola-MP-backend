@@ -1,72 +1,5 @@
 const getModels = () => require('../model');
-
-// Helicopter-specific seat availability function
-async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, userId = null, transaction = null }) {
-  const schedule = await models.HelicopterSchedule.findByPk(schedule_id, {
-    include: [{ model: models.Helicopter, as: 'Helicopter' }],
-    transaction,
-  });
-  
-  if (!schedule || !schedule.Helicopter) {
-    return [];
-  }
-  
-  const helicopter = schedule.Helicopter;
-  const seatLimit = helicopter.seat_limit || 6;
-  
-  // Generate seat labels (S1, S2, etc.)
-  const allSeats = [];
-  for (let i = 1; i <= seatLimit; i++) {
-    allSeats.push(`S${i}`);
-  }
-  
-  // Get booked seats for this helicopter schedule on this date
-  const bookedSeatsRows = await models.BookedSeat.findAll({
-    where: {
-      schedule_id: schedule_id,
-      bookDate,
-    },
-    attributes: ['seat_label'],
-    transaction,
-  });
-  
-  // Get held seats (if HelicopterSeatHold table exists)
-  const now = new Date();
-  let heldSeatsRows = [];
-  try {
-    if (userId) {
-      heldSeatsRows = await models.HelicopterSeatHold.findAll({
-        where: {
-          schedule_id: schedule_id,
-          bookDate,
-          expires_at: { [models.Sequelize.Op.gt]: now },
-          held_by: { [models.Sequelize.Op.ne]: userId },
-        },
-        attributes: ['seat_label'],
-        transaction,
-      });
-    } else {
-      heldSeatsRows = await models.HelicopterSeatHold.findAll({
-        where: {
-          schedule_id: schedule_id,
-          bookDate,
-          expires_at: { [models.Sequelize.Op.gt]: now },
-        },
-        attributes: ['seat_label'],
-        transaction,
-      });
-    }
-  } catch (error) {
-    // HelicopterSeatHold table might not exist, ignore
-  }
-  
-  const bookedSeats = new Set(bookedSeatsRows.map((row) => row.seat_label));
-  const heldByOthers = new Set(heldSeatsRows.map((row) => row.seat_label));
-  const unavailableSeats = new Set([...bookedSeats, ...heldByOthers]);
-  
-  const availableSeats = allSeats.filter((seat) => !unavailableSeats.has(seat));
-  return availableSeats;
-}
+const { getAvailableHelicopterSeats } = require('../utils/helicopterSeatUtils');
 
 async function bookHelicopterSeat(req, res) {
   const models = getModels();
@@ -134,5 +67,4 @@ async function getAvailableHelicopterSeatLabels(req, res) {
 module.exports = {
   bookHelicopterSeat,
   getAvailableHelicopterSeatLabels,
-  getAvailableHelicopterSeats,
 };

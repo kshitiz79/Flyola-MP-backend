@@ -1,8 +1,8 @@
 // File: controller/helicopterSeatHoldController.js
 const getModels = () => require('../model');
 const dayjs = require('dayjs');
-// Import getAvailableHelicopterSeats from helicopterSeatController
-const { getAvailableHelicopterSeats } = require('./helicopterSeatController');
+// Import getAvailableHelicopterSeats from helicopterSeatUtils
+const { getAvailableHelicopterSeats } = require('../utils/helicopterSeatUtils');
 
 async function holdHelicopterSeats(req, res) {
   const models = getModels();
