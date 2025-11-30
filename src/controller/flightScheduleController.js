@@ -427,26 +427,31 @@ async function getSchedulePriceByDay(req, res) {
       return res.status(400).json({ error: 'Flight departure day not defined' });
     }
 
-    let year, month;
+    let year, month, startDate, endDate;
+    
     if (monthQuery) {
+      // Use month parameter
       [year, month] = monthQuery.split('-').map(Number);
+      startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
+      endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
+    } else if (startDateParam) {
+      // Use start_date parameter - derive month from it
+      const parsedStart = toZonedTime(new Date(startDateParam), 'Asia/Kolkata');
+      if (!isNaN(parsedStart)) {
+        year = parsedStart.getFullYear();
+        month = parsedStart.getMonth() + 1;
+        startDate = parsedStart;
+        endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
+      } else {
+        return res.status(400).json({ error: 'Invalid start_date format' });
+      }
     } else {
+      // Default to current month
       const now = toZonedTime(new Date(), 'Asia/Kolkata');
       year = now.getFullYear();
       month = now.getMonth() + 1;
-    }
-
-    let startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
-    const endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
-
-    // If start_date is provided, use it as the lower bound (if it's after the default startDate)
-    if (startDateParam) {
-      const parsedStart = toZonedTime(new Date(startDateParam), 'Asia/Kolkata');
-      if (!isNaN(parsedStart)) {
-        if (parsedStart > startDate) {
-          startDate = parsedStart;
-        }
-      }
+      startDate = toZonedTime(new Date(year, month - 1, 1), 'Asia/Kolkata');
+      endDate = toZonedTime(new Date(year, month, 0), 'Asia/Kolkata');
     }
 
     const weekdayMap = {
