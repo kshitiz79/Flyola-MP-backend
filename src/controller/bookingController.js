@@ -473,16 +473,16 @@ async function completeBooking(req, res) {
             if (isHelicopterBooking) {
                 const fullHelicopterSchedule = await models.HelicopterSchedule.findByPk(bookedSeat.schedule_id, {
                     include: [
-                        { model: models.Helipad, as: 'DepartureHelipad' },
-                        { model: models.Helipad, as: 'ArrivalHelipad' },
+                        { model: models.Helipad, as: 'DepartureLocation' },
+                        { model: models.Helipad, as: 'ArrivalLocation' },
                         { model: models.Helicopter, as: 'Helicopter' }
                     ]
                 });
 
                 if (fullHelicopterSchedule) {
                     scheduleDetails = {
-                        departureCity: fullHelicopterSchedule.DepartureHelipad?.helipad_name || 'N/A',
-                        arrivalCity: fullHelicopterSchedule.ArrivalHelipad?.helipad_name || 'N/A',
+                        departureCity: fullHelicopterSchedule.DepartureLocation?.helipad_name || 'N/A',
+                        arrivalCity: fullHelicopterSchedule.ArrivalLocation?.helipad_name || 'N/A',
                         departureTime: fullHelicopterSchedule.departure_time,
                         arrivalTime: fullHelicopterSchedule.arrival_time,
                         flightNumber: fullHelicopterSchedule.Helicopter?.helicopter_number || 'N/A',

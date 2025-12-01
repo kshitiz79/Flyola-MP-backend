@@ -97,9 +97,9 @@ async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, user
     .map((s) => s.id);
   
   // Check booked seats across ALL overlapping schedules
-  const bookedSeatsRows = await models.BookedSeat.findAll({
+  const bookedSeatsRows = await models.HelicopterBookedSeat.findAll({
     where: {
-      schedule_id: relevantScheduleIds,
+      helicopter_schedule_id: relevantScheduleIds,
       bookDate,
     },
     attributes: ['seat_label'],
