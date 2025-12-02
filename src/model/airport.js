@@ -27,22 +27,6 @@ const Airport = sequelize.define('Airport', {
       isIn: [[0, 1]], // Restrict to 0 (inactive) or 1 (active)
     },
   },
-  has_helipad: {
-    type: DataTypes.BOOLEAN,
-    allowNull: false,
-    defaultValue: false, // Default to airport only
-    comment: 'Indicates if this location also has helipad facilities'
-  },
-  helipad_code: {
-    type: DataTypes.STRING(10),
-    allowNull: true,
-    comment: 'Helipad code if has_helipad is true'
-  },
-  helipad_name: {
-    type: DataTypes.STRING(100),
-    allowNull: true,
-    comment: 'Helipad name if has_helipad is true'
-  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,

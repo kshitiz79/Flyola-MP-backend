@@ -3,12 +3,11 @@ const router = express.Router();
 const couponController = require('../controller/couponController');
 
 
-// Public route - validate coupon
+// Public routes
 router.post('/validate', couponController.validateCoupon);
+router.get('/auto-apply', couponController.getAutoApplyCoupons);
 
 // Admin routes - require authentication and admin role
-
-
 router.post('/', couponController.createCoupon);
 router.get('/', couponController.getAllCoupons);
 router.put('/:id', couponController.updateCoupon);

@@ -68,6 +68,12 @@ const Coupon = sequelize.define('Coupon', {
     allowNull: true,
     comment: 'Coupon description'
   },
+  auto_apply: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    comment: 'Whether coupon should be automatically applied at checkout'
+  },
   created_by: {
     type: DataTypes.BIGINT.UNSIGNED,
     allowNull: true,

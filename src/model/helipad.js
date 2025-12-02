@@ -6,24 +6,17 @@ module.exports = (sequelize, DataTypes) => {
       autoIncrement: true
     },
     helipad_name: {
-      type: DataTypes.STRING,
-      allowNull: true
-    },
-    helipad_code: {
-      type: DataTypes.STRING,
-      allowNull: true
-    },
-    city: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING(255),
       allowNull: false
     },
-    airport_name: {
-      type: DataTypes.STRING,
-      allowNull: true
+    helipad_code: {
+      type: DataTypes.STRING(10),
+      allowNull: false,
+      unique: true
     },
-    airport_code: {
-      type: DataTypes.STRING,
-      allowNull: true
+    city: {
+      type: DataTypes.STRING(100),
+      allowNull: false
     },
     status: {
       type: DataTypes.INTEGER,
@@ -39,7 +32,7 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: DataTypes.NOW
     }
   }, {
-    tableName: 'airports', // Use airports table, not helipads
+    tableName: 'helipads',
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at'
