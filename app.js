@@ -71,6 +71,7 @@ app.use('/coupons', require('./src/routes/coupons'));
 app.use('/passenger', require('./src/routes/passengerRoutes'));
 app.use('/flights', require('./src/routes/flightRoutes'));
 app.use('/api/joyride-slots', require('./src/routes/joyRide'));
+app.use('/api/joyride-schedules', require('./src/routes/joyRideSchedules'));
 app.use('/users', require('./src/routes/users'));
 app.use('/booked-seat', require('./src/routes/seatRoutes'));
 app.use('/flight-schedules', require('./src/routes/flightScheduleRoutes'));

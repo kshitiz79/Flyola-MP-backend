@@ -24,11 +24,16 @@ const getJoyrideSlots = async (req, res) => {
 
 // Add new joyride slots for a date range
 const addJoyrideSlot = async (req, res) => {
-  const { startDate, endDate, time, seats, price } = req.body;
+  const { startDate, endDate, time, seats, price, startHelipadId, stopHelipadId } = req.body;
 
   // Validate inputs
   if (!startDate || !endDate || !time || seats < 0 || price < 0) {
     return res.status(400).json({ error: 'startDate, endDate, time, seats, and price are required, and seats/price must be non-negative' });
+  }
+
+  // Validate helipad IDs
+  if (!startHelipadId || !stopHelipadId) {
+    return res.status(400).json({ error: 'startHelipadId and stopHelipadId are required' });
   }
 
   // Validate date and time formats
@@ -65,7 +70,14 @@ const addJoyrideSlot = async (req, res) => {
       const createdSlots = await Promise.all(
         dates.map(date =>
           models.Joy_Ride_Slot.create(
-            { date, time, seats, price },
+            { 
+              date, 
+              time, 
+              seats, 
+              price,
+              start_helipad_id: startHelipadId,
+              stop_helipad_id: stopHelipadId
+            },
             { transaction: t }
           )
         )
@@ -88,7 +100,7 @@ const addJoyrideSlot = async (req, res) => {
 // Update an existing joyride slot
 const updateJoyrideSlot = async (req, res) => {
   const slotId = req.params.id;
-  const { date, time, seats, price } = req.body;
+  const { date, time, seats, price, startHelipadId, stopHelipadId } = req.body;
   
   // Validate slot ID
   if (!slotId || isNaN(slotId)) {
@@ -98,6 +110,14 @@ const updateJoyrideSlot = async (req, res) => {
   // Validate input data
   if (!date || !time || seats < 0 || price < 0 || !validateDateTime(date, time)) {
     return res.status(400).json({ error: 'Invalid date, time, seats, or price. Ensure date is valid and time is in HH:mm format.' });
+  }
+
+  // Validate helipad IDs if provided
+  if (startHelipadId && !Number.isInteger(parseInt(startHelipadId))) {
+    return res.status(400).json({ error: 'Invalid startHelipadId' });
+  }
+  if (stopHelipadId && !Number.isInteger(parseInt(stopHelipadId))) {
+    return res.status(400).json({ error: 'Invalid stopHelipadId' });
   }
   
   try {
@@ -128,6 +148,8 @@ const updateJoyrideSlot = async (req, res) => {
     slot.time = time;
     slot.seats = seats;
     slot.price = price;
+    if (startHelipadId) slot.start_helipad_id = startHelipadId;
+    if (stopHelipadId) slot.stop_helipad_id = stopHelipadId;
     await slot.save();
     
     res.json({ message: 'Joyride slot updated successfully', slot });

@@ -16,6 +16,7 @@ const models = {
   SeatHold: require('./seatHold'),
   Joy_Ride_Slot: require('./joyRide'),
   JoyRideBooking: require('./joyRideBooking'),
+  JoyRideSchedule: require('./joyRideSchedule'),
   Refund: require('./refund'),
   // Helicopter models
   Helipad: require('./helipad')(sequelize, Sequelize.DataTypes),
@@ -56,5 +57,15 @@ models.Booking.hasMany(models.BookedSeat, { foreignKey: 'booking_id' });
 models.Booking.hasMany(models.Refund, { foreignKey: 'booking_id' });
 models.SeatHold.belongsTo(models.FlightSchedule, { foreignKey: 'schedule_id' });
 models.HelicopterSeatHold.belongsTo(models.HelicopterSchedule, { foreignKey: 'schedule_id' });
+
+// Joy Ride Schedule associations
+models.JoyRideSchedule.belongsTo(models.Helipad, { 
+  foreignKey: 'start_helipad_id',
+  as: 'startHelipad'
+});
+models.JoyRideSchedule.belongsTo(models.Helipad, { 
+  foreignKey: 'stop_helipad_id',
+  as: 'stopHelipad'
+});
 
 module.exports = models;
