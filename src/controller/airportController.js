@@ -96,9 +96,51 @@ const deleteAirport = async (req, res) => {
     if (!airport) {
       return res.status(404).json({ message: 'Airport not found' });
     }
+
+    // Check for references in flight_schedules
+    const flightScheduleCount = await models.FlightSchedule.count({
+      where: {
+        [models.Sequelize.Op.or]: [
+          { departure_airport_id: airportId },
+          { arrival_airport_id: airportId }
+        ]
+      }
+    });
+
+    if (flightScheduleCount > 0) {
+      return res.status(400).json({ 
+        error: 'Cannot delete airport',
+        message: `This airport is referenced in ${flightScheduleCount} flight schedule(s). Please remove or update those schedules first.`,
+        references: {
+          flight_schedules: flightScheduleCount
+        }
+      });
+    }
+
+    // Check for references in flights table
+    const flightCount = await models.Flight.count({
+      where: {
+        [models.Sequelize.Op.or]: [
+          { start_airport_id: airportId },
+          { end_airport_id: airportId }
+        ]
+      }
+    });
+
+    if (flightCount > 0) {
+      return res.status(400).json({ 
+        error: 'Cannot delete airport',
+        message: `This airport is referenced in ${flightCount} flight(s). Please remove or update those flights first.`,
+        references: {
+          flights: flightCount
+        }
+      });
+    }
+
     await airport.destroy();
     res.json({ message: 'Airport deleted successfully' });
   } catch (err) {
+    console.error('Delete airport error:', err);
     res.status(500).json({ error: 'Failed to delete airport', details: err.message });
   }
 };
