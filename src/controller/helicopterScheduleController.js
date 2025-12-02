@@ -203,19 +203,15 @@ async function addHelicopterSchedule(req, res) {
       return res.status(400).json({ error: 'Helicopter not found' });
     }
 
-    // Validate helipads exist (now using Airport table with helipad facilities)
-    const departureLocation = await models.Airport.findOne({
-      where: { id: departure_helipad_id, has_helipad: true }
-    });
-    const arrivalLocation = await models.Airport.findOne({
-      where: { id: arrival_helipad_id, has_helipad: true }
-    });
+    // Validate helipads exist in the helipads table
+    const departureLocation = await models.Helipad.findByPk(departure_helipad_id);
+    const arrivalLocation = await models.Helipad.findByPk(arrival_helipad_id);
     
     if (!departureLocation) {
-      return res.status(400).json({ error: 'Departure helipad location not found or does not have helipad facilities' });
+      return res.status(400).json({ error: 'Departure helipad not found' });
     }
     if (!arrivalLocation) {
-      return res.status(400).json({ error: 'Arrival helipad location not found or does not have helipad facilities' });
+      return res.status(400).json({ error: 'Arrival helipad not found' });
     }
 
     const validViaStopIds = via_stop_id
@@ -253,19 +249,15 @@ async function updateHelicopterSchedule(req, res) {
     const depId = departure_helipad_id || schedule.departure_helipad_id;
     const arrId = arrival_helipad_id || schedule.arrival_helipad_id;
 
-    // Validate helipads exist (now using Airport table with helipad facilities)
-    const departureLocation = await models.Airport.findOne({
-      where: { id: depId, has_helipad: true }
-    });
-    const arrivalLocation = await models.Airport.findOne({
-      where: { id: arrId, has_helipad: true }
-    });
+    // Validate helipads exist in the helipads table
+    const departureLocation = await models.Helipad.findByPk(depId);
+    const arrivalLocation = await models.Helipad.findByPk(arrId);
     
     if (!departureLocation) {
-      return res.status(400).json({ error: `Departure helipad location not found or does not have helipad facilities for ID: ${depId}` });
+      return res.status(400).json({ error: `Departure helipad not found for ID: ${depId}` });
     }
     if (!arrivalLocation) {
-      return res.status(400).json({ error: `Arrival helipad location not found or does not have helipad facilities for ID: ${arrId}` });
+      return res.status(400).json({ error: `Arrival helipad not found for ID: ${arrId}` });
     }
 
     let validViaStopIds = [];
@@ -275,8 +267,8 @@ async function updateHelicopterSchedule(req, res) {
         validViaStopIds = Array.isArray(parsed) ? parsed.filter(
           (id) => id && Number.isInteger(id) && id !== 0
         ) : [];
-        const helipadLocations = await models.Airport.findAll({
-          where: { id: validViaStopIds, has_helipad: true },
+        const helipadLocations = await models.Helipad.findAll({
+          where: { id: validViaStopIds },
           attributes: ['id'],
         });
         validViaStopIds = validViaStopIds.filter((id) => helipadLocations.map((h) => h.id).includes(id));
