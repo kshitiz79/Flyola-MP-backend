@@ -59,51 +59,17 @@ router.post('/', [
       return res.status(400).json({ error: 'Helicopter number already exists' });
     }
 
-    // Validate helipad locations exist and have helipad facilities
+    // Validate helipad locations exist in helipads table
     let validationWarnings = [];
     try {
-      // Check if Airport model exists
-      if (!models.Airport) {
-        return res.status(500).json({ error: 'Airport model not available' });
-      }
-      
-      // Debug: Check total airports and helipad locations
-      const totalAirports = await models.Airport.count();
-      const helipadLocations = await models.Airport.count({ where: { has_helipad: true } });
-      const startLocation = await models.Airport.findOne({
-        where: { id: req.body.start_helipad_id, has_helipad: true }
-      });
-      const endLocation = await models.Airport.findOne({
-        where: { id: req.body.end_helipad_id, has_helipad: true }
-      });
+      const startLocation = await models.Helipad.findByPk(req.body.start_helipad_id);
+      const endLocation = await models.Helipad.findByPk(req.body.end_helipad_id);
 
       if (!startLocation) {
-        // Check if location exists without helipad facilities
-        const startAnyLocation = await models.Airport.findByPk(req.body.start_helipad_id);
-        if (!startAnyLocation) {
-          // If no helipad locations exist at all, allow creation with warning
-          if (helipadLocations === 0) {
-            validationWarnings.push(`Start location ID ${req.body.start_helipad_id} not validated (no helipad locations configured yet)`);
-          } else {
-            return res.status(400).json({ error: 'Start location not found' });
-          }
-        } else {
-          validationWarnings.push('Start location exists but does not have helipad facilities');
-        }
+        return res.status(400).json({ error: `Start helipad with ID ${req.body.start_helipad_id} not found` });
       }
       if (!endLocation) {
-        // Check if location exists without helipad facilities
-        const endAnyLocation = await models.Airport.findByPk(req.body.end_helipad_id);
-        if (!endAnyLocation) {
-          // If no helipad locations exist at all, allow creation with warning
-          if (helipadLocations === 0) {
-            validationWarnings.push(`End location ID ${req.body.end_helipad_id} not validated (no helipad locations configured yet)`);
-          } else {
-            return res.status(400).json({ error: 'End location not found' });
-          }
-        } else {
-          validationWarnings.push('End location exists but does not have helipad facilities');
-        }
+        return res.status(400).json({ error: `End helipad with ID ${req.body.end_helipad_id} not found` });
       }
     } catch (validationError) {
       return res.status(500).json({ 
@@ -183,32 +149,16 @@ router.put('/:id', [
     let validationWarnings = [];
     try {
       if (req.body.start_helipad_id) {
-        const startLocation = await models.Airport.findOne({
-          where: { id: req.body.start_helipad_id, has_helipad: true }
-        });
+        const startLocation = await models.Helipad.findByPk(req.body.start_helipad_id);
         if (!startLocation) {
-          // Check if location exists without helipad facilities
-          const startAnyLocation = await models.Airport.findByPk(req.body.start_helipad_id);
-          if (!startAnyLocation) {
-            return res.status(400).json({ error: 'Start location not found' });
-          } else {
-            validationWarnings.push('Start location exists but does not have helipad facilities');
-          }
+          return res.status(400).json({ error: `Start helipad with ID ${req.body.start_helipad_id} not found` });
         }
       }
       
       if (req.body.end_helipad_id) {
-        const endLocation = await models.Airport.findOne({
-          where: { id: req.body.end_helipad_id, has_helipad: true }
-        });
+        const endLocation = await models.Helipad.findByPk(req.body.end_helipad_id);
         if (!endLocation) {
-          // Check if location exists without helipad facilities
-          const endAnyLocation = await models.Airport.findByPk(req.body.end_helipad_id);
-          if (!endAnyLocation) {
-            return res.status(400).json({ error: 'End location not found' });
-          } else {
-            validationWarnings.push('End location exists but does not have helipad facilities');
-          }
+          return res.status(400).json({ error: `End helipad with ID ${req.body.end_helipad_id} not found` });
         }
       }
     } catch (validationError) {
