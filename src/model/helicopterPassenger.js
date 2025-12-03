@@ -29,6 +29,11 @@ const HelicopterPassenger = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+    weight: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+      comment: 'Passenger weight in kg',
+    },
     type: {
       type: DataTypes.ENUM('Adult', 'Child', 'Infant'),
       defaultValue: 'Adult',

@@ -363,6 +363,7 @@ async function completeBooking(req, res) {
                     name: p.name,
                     dob: p.dob || null,
                     age: p.age,
+                    weight: p.weight || null,
                     type: p.type,
                 })),
                 { transaction }

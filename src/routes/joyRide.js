@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const joyrideSlotController = require('../controller/joyrideController');
-const JoyRideBookingController = require('../controller/JoyRideBookingController');
+const JoyRideBookingController = require('../controller/joyRideBookingController');
+
 const joyridePaymentController = require('../controller/joyridePaymentController');
 const { authenticate } = require('../middleware/auth'); // Adjust path to your middleware file
 

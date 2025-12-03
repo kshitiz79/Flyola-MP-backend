@@ -24,7 +24,7 @@ const getBookingCutoffTime = async (req, res) => {
   try {
     const settings = await models.SystemSettings.findAll({
       where: {
-        setting_key: ['flight_cutoff_time', 'helicopter_cutoff_time', 'advance_booking_cutoff']
+        setting_key: ['flight_cutoff_time', 'helicopter_cutoff_time', 'advance_booking_cutoff', 'helicopter_weight_price_per_kg']
       }
     });
 
@@ -32,6 +32,8 @@ const getBookingCutoffTime = async (req, res) => {
       flight_cutoff_time: '09:00',
       helicopter_cutoff_time: '09:00',
       advance_booking_days: 0,
+      helicopter_weight_price_per_kg: 500,
+      helicopter_free_weight_limit: 75,
       description: 'Default booking cutoff settings'
     };
 
@@ -43,6 +45,9 @@ const getBookingCutoffTime = async (req, res) => {
         result.helicopter_cutoff_time = value.time;
       } else if (setting.setting_key === 'advance_booking_cutoff') {
         result.advance_booking_days = value.days;
+      } else if (setting.setting_key === 'helicopter_weight_price_per_kg') {
+        result.helicopter_weight_price_per_kg = value.price_per_kg || 500;
+        result.helicopter_free_weight_limit = value.free_weight_limit || 75;
       }
     });
 
@@ -145,6 +150,57 @@ const updateBookingCutoffTime = async (req, res) => {
         });
       }
       updates.push('advance_booking_days');
+    }
+
+    // Update helicopter weight pricing
+    const { helicopter_weight_price_per_kg, helicopter_free_weight_limit } = req.body;
+    if (helicopter_weight_price_per_kg !== undefined || helicopter_free_weight_limit !== undefined) {
+      // Get current settings
+      const currentSetting = await models.SystemSettings.findOne({
+        where: { setting_key: 'helicopter_weight_price_per_kg' }
+      });
+      
+      let currentValue = { price_per_kg: 500, free_weight_limit: 75 };
+      if (currentSetting) {
+        currentValue = JSON.parse(currentSetting.setting_value);
+      }
+
+      // Update with new values
+      const pricePerKg = helicopter_weight_price_per_kg !== undefined 
+        ? parseFloat(helicopter_weight_price_per_kg) 
+        : currentValue.price_per_kg;
+      const freeWeightLimit = helicopter_free_weight_limit !== undefined 
+        ? parseFloat(helicopter_free_weight_limit) 
+        : currentValue.free_weight_limit;
+
+      if (isNaN(pricePerKg) || pricePerKg < 0) {
+        return res.status(400).json({ 
+          error: 'Invalid helicopter weight price. Must be a positive number' 
+        });
+      }
+      if (isNaN(freeWeightLimit) || freeWeightLimit < 0 || freeWeightLimit > 200) {
+        return res.status(400).json({ 
+          error: 'Invalid free weight limit. Must be between 0 and 200 kg' 
+        });
+      }
+
+      const [setting, created] = await models.SystemSettings.findOrCreate({
+        where: { setting_key: 'helicopter_weight_price_per_kg' },
+        defaults: {
+          setting_value: JSON.stringify({ price_per_kg: pricePerKg, free_weight_limit: freeWeightLimit }),
+          description: `Helicopter weight policy: ₹${pricePerKg} per kg over ${freeWeightLimit}kg per passenger`,
+          updated_by: admin.id
+        }
+      });
+
+      if (!created) {
+        await setting.update({
+          setting_value: JSON.stringify({ price_per_kg: pricePerKg, free_weight_limit: freeWeightLimit }),
+          description: `Helicopter weight policy: ₹${pricePerKg} per kg over ${freeWeightLimit}kg per passenger`,
+          updated_by: admin.id
+        });
+      }
+      updates.push('helicopter_weight_pricing');
     }
 
     return res.json({
