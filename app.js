@@ -82,6 +82,7 @@ app.use('/airport', require('./src/routes/airport'));
 app.use('/tickets', require('./src/routes/ticketRoutes'));
 app.use('/cancellation', require('./src/routes/cancellation'));
 app.use('/helicopter-cancellation', require('./src/routes/helicopterCancellation'));
+app.use('/rescheduling', require('./src/routes/rescheduling'));
 app.use('/support', require('./src/routes/support'));
 
 app.use('/helipads', require('./src/routes/helipads'));
