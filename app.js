@@ -88,6 +88,7 @@ app.use('/helipads', require('./src/routes/helipads'));
 app.use('/helicopters', require('./src/routes/helicopters'));
 app.use('/helicopter-schedules', require('./src/routes/helicopterSchedules'));
 app.use('/helicopter-seat', require('./src/routes/helicopterSeatRoutes'));
+app.use('/api/joyride-bookings', require('./src/routes/joyRideBookings'));
 app.use('/api/admin', require('./src/routes/adminDashboard'));
 app.use('/system-settings', require('./src/routes/systemSettingsRoutes'));
 
