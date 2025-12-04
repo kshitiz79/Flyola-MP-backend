@@ -95,7 +95,7 @@ router.post('/login', async (req, res) => {
 router.post('/refresh-token', authenticate(), async (req, res) => {
   try {
     console.log('[Token Refresh] Refreshing token for user:', req.user.id);
-    
+
     // User is already authenticated by middleware, generate fresh token
     const payload = {
       id: req.user.id,
@@ -103,11 +103,11 @@ router.post('/refresh-token', authenticate(), async (req, res) => {
       role: req.user.role,
       remember_token: req.user.remember_token || null
     };
-    
+
     const newToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' });
-    
+
     console.log('[Token Refresh] New token generated successfully');
-    
+
     return res.json({
       success: true,
       token: newToken,
@@ -278,9 +278,16 @@ router.post('/logout', (req, res) => {
 router.post('/register', async (req, res) => {
   const { name, email, password, number } = req.body;
 
+  // Debug logging
+  console.log('[Register] Received request body:', { name, email, password: password ? '***' : undefined, number });
 
-  if (!name || !email || !password || !number) {
-    return res.status(400).json({ error: 'All fields are required.' });
+  if (!name || !email || !password) {
+    console.log('[Register] Validation failed - missing fields:', {
+      hasName: !!name,
+      hasEmail: !!email,
+      hasPassword: !!password
+    });
+    return res.status(400).json({ error: 'Name, email, and password are required.' });
   }
 
   // Basic email validation
@@ -289,10 +296,12 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'Invalid email format' });
   }
 
-  // Basic phone validation
-  const phoneRegex = /^\d{10}$/;
-  if (!phoneRegex.test(number)) {
-    return res.status(400).json({ error: 'Phone number must be 10 digits' });
+  // Optional phone validation - only validate if provided
+  if (number) {
+    const phoneRegex = /^\d{10}$/;
+    if (!phoneRegex.test(number)) {
+      return res.status(400).json({ error: 'Phone number must be 10 digits' });
+    }
   }
 
   try {
@@ -306,7 +315,7 @@ router.post('/register', async (req, res) => {
       name,
       email,
       password: hashed,
-      number,
+      number: number || null,
       role: 3
     });
 
@@ -338,8 +347,8 @@ router.post('/register', async (req, res) => {
 /** Register Admin **/
 router.post('/register-admin', async (req, res) => {
   const { name, email, password, number } = req.body;
-  if (!name || !email || !password || !number) {
-    return res.status(400).json({ error: 'All fields are required.' });
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Name, email, and password are required.' });
   }
 
   try {
@@ -351,7 +360,7 @@ router.post('/register-admin', async (req, res) => {
     const hashed = await bcrypt.hash(password, 12);
     const remember_token = 'admin_default_token';
     const newUser = await models.User.create({
-      name, email, password: hashed, number, role: 1, remember_token
+      name, email, password: hashed, number: number || null, role: 1, remember_token
     });
 
     const payload = { id: newUser.id, email, role: 1, remember_token };
@@ -568,7 +577,7 @@ router.put('/:id', authenticate([1]), async (req, res) => {
     if (gender !== undefined) updateData.gender = gender === '' ? null : gender;
     if (city !== undefined) updateData.city = city === '' ? null : city;
     if (state !== undefined) updateData.state = state === '' ? null : state;
-    
+
     // Update timestamp
     updateData.updated_at = new Date();
 
@@ -756,8 +765,8 @@ router.post('/register-booking-agent', async (req, res) => {
   const { name, email, password, number } = req.body;
 
   // Check if required fields are provided
-  if (!name || !email || !password || !number) {
-    return res.status(400).json({ error: 'All fields are required.' });
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Name, email, and password are required.' });
   }
 
   try {
@@ -775,7 +784,7 @@ router.post('/register-booking-agent', async (req, res) => {
       name,
       email,
       password: hashed,
-      number,
+      number: number || null,
       role: 2  // Set the role to booking agent
     });
 
@@ -798,8 +807,8 @@ router.post('/register-booking-agent', async (req, res) => {
 /** Register Head Admin **/
 router.post('/register-head-admin', async (req, res) => {
   const { name, email, password, number } = req.body;
-  if (!name || !email || !password || !number) {
-    return res.status(400).json({ error: 'All fields are required.' });
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Name, email, and password are required.' });
   }
 
   try {
@@ -810,7 +819,7 @@ router.post('/register-head-admin', async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 12);
     const newUser = await models.User.create({
-      name, email, password: hashed, number, role: 4
+      name, email, password: hashed, number: number || null, role: 4
     });
 
     const payload = { id: newUser.id, email, role: 4, remember_token: null };
@@ -830,8 +839,8 @@ router.post('/register-head-admin', async (req, res) => {
 /** Register Chairman Admin **/
 router.post('/register-chairman-admin', async (req, res) => {
   const { name, email, password, number } = req.body;
-  if (!name || !email || !password || !number) {
-    return res.status(400).json({ error: 'All fields are required.' });
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Name, email, and password are required.' });
   }
 
   try {
@@ -842,7 +851,7 @@ router.post('/register-chairman-admin', async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 12);
     const newUser = await models.User.create({
-      name, email, password: hashed, number, role: 5
+      name, email, password: hashed, number: number || null, role: 5
     });
 
     const payload = { id: newUser.id, email, role: 5, remember_token: null };
@@ -862,8 +871,8 @@ router.post('/register-chairman-admin', async (req, res) => {
 /** Register Director Admin **/
 router.post('/register-director-admin', async (req, res) => {
   const { name, email, password, number } = req.body;
-  if (!name || !email || !password || !number) {
-    return res.status(400).json({ error: 'All fields are required.' });
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Name, email, and password are required.' });
   }
 
   try {
@@ -874,7 +883,7 @@ router.post('/register-director-admin', async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 12);
     const newUser = await models.User.create({
-      name, email, password: hashed, number, role: 6
+      name, email, password: hashed, number: number || null, role: 6
     });
 
     const payload = { id: newUser.id, email, role: 6, remember_token: null };
@@ -894,8 +903,8 @@ router.post('/register-director-admin', async (req, res) => {
 /** Register Accounts Admin **/
 router.post('/register-accounts-admin', async (req, res) => {
   const { name, email, password, number } = req.body;
-  if (!name || !email || !password || !number) {
-    return res.status(400).json({ error: 'All fields are required.' });
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Name, email, and password are required.' });
   }
 
   try {
@@ -906,7 +915,7 @@ router.post('/register-accounts-admin', async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 12);
     const newUser = await models.User.create({
-      name, email, password: hashed, number, role: 7
+      name, email, password: hashed, number: number || null, role: 7
     });
 
     const payload = { id: newUser.id, email, role: 7, remember_token: null };
