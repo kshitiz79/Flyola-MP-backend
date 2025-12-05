@@ -24,4 +24,7 @@ router.post('/verify-payment/:bookingId', reschedulingController.verifyReschedul
 // Get user's rescheduling history
 router.get('/history', reschedulingController.getUserReschedulingHistory);
 
+// Admin reschedule - no payment required (admin only)
+router.post('/admin/:bookingId', reschedulingController.adminRescheduleBooking);
+
 module.exports = router;

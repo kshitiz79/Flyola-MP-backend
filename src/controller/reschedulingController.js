@@ -78,9 +78,36 @@ const getReschedulingDetails = async (req, res) => {
     const reschedulingFee = parseFloat(booking.totalFare) * 0.10;
 
     // Get available schedules for the same route
-    const currentSchedule = bookingType === 'helicopter' 
+    let currentSchedule = bookingType === 'helicopter' 
       ? booking.HelicopterSchedule 
       : booking.FlightSchedule;
+
+    // Fallback: manually fetch schedule if not loaded via association
+    if (!currentSchedule && booking.schedule_id) {
+      console.log('Schedule not loaded via association, fetching manually for schedule_id:', booking.schedule_id);
+      if (bookingType === 'helicopter') {
+        currentSchedule = await models.HelicopterSchedule.findByPk(booking.helicopter_schedule_id, {
+          include: [
+            { model: models.Helipad, as: 'DepartureLocation' },
+            { model: models.Helipad, as: 'ArrivalLocation' }
+          ]
+        });
+      } else {
+        currentSchedule = await models.FlightSchedule.findByPk(booking.schedule_id, {
+          include: [
+            { model: models.Airport, as: 'DepartureAirport' },
+            { model: models.Airport, as: 'ArrivalAirport' }
+          ]
+        });
+      }
+    }
+
+    if (!currentSchedule) {
+      return res.status(400).json({ 
+        error: 'Cannot reschedule: Original flight schedule not found',
+        scheduleId: booking.schedule_id
+      });
+    }
 
     console.log('Current booking schedule:', {
       scheduleId: currentSchedule?.id,
@@ -911,11 +938,126 @@ const verifyReschedulingPayment = async (req, res) => {
   }
 };
 
+/**
+ * Admin reschedule booking - No payment required
+ * Admin can reschedule any booking without payment gateway
+ */
+const adminRescheduleBooking = async (req, res) => {
+  const { bookingId } = req.params;
+  const { bookingType, newScheduleId, newBookDate, newSeatLabels, waiveFee } = req.body;
+
+  let t;
+  try {
+    // Start transaction
+    t = await models.sequelize.transaction();
+
+    let booking, newSchedule, bookedSeatModel, scheduleIdField, bookingIdField;
+
+    if (bookingType === 'helicopter') {
+      booking = await models.HelicopterBooking.findByPk(bookingId, {
+        include: [{ model: models.HelicopterSchedule }],
+        transaction: t
+      });
+      newSchedule = await models.HelicopterSchedule.findByPk(newScheduleId, { transaction: t });
+      bookedSeatModel = models.HelicopterBookedSeat;
+      scheduleIdField = 'helicopter_schedule_id';
+      bookingIdField = 'helicopter_booking_id';
+    } else {
+      booking = await models.Booking.findByPk(bookingId, {
+        include: [{ model: models.FlightSchedule }],
+        transaction: t
+      });
+      newSchedule = await models.FlightSchedule.findByPk(newScheduleId, { transaction: t });
+      bookedSeatModel = models.BookedSeat;
+      scheduleIdField = 'schedule_id';
+      bookingIdField = 'booking_id';
+    }
+
+    if (!booking) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    if (!newSchedule) {
+      await t.rollback();
+      return res.status(404).json({ error: 'New schedule not found' });
+    }
+
+    // Calculate fees (for record keeping, but not charged)
+    const originalFare = parseFloat(booking.totalFare);
+    const newFare = parseFloat(newSchedule.price) * booking.noOfPassengers;
+    const reschedulingFee = waiveFee ? 0 : originalFare * 0.10;
+    const fareDifference = newFare - originalFare;
+    
+    // Admin can choose to waive fees or charge the difference
+    const totalDeduction = waiveFee ? 0 : (reschedulingFee + (fareDifference > 0 ? fareDifference : 0));
+    const newTotalFare = waiveFee ? newFare : (originalFare + totalDeduction);
+
+    // Delete old booked seats
+    await bookedSeatModel.destroy({
+      where: { [bookingIdField]: booking.id },
+      transaction: t
+    });
+
+    // Create new booked seats
+    for (const seatLabel of newSeatLabels) {
+      await bookedSeatModel.create({
+        [bookingIdField]: booking.id,
+        [scheduleIdField]: newScheduleId,
+        bookDate: newBookDate,
+        seat_label: seatLabel,
+        booked_seat: 1
+      }, { transaction: t });
+    }
+
+    // Update booking
+    await booking.update({
+      [scheduleIdField]: newScheduleId,
+      bookDate: newBookDate,
+      totalFare: newTotalFare,
+      bookingStatus: 'CONFIRMED'
+    }, { transaction: t });
+
+    await t.commit();
+
+    return res.json({
+      success: true,
+      message: 'Booking rescheduled successfully by admin',
+      booking: {
+        id: booking.id,
+        pnr: booking.pnr,
+        bookingNo: booking.bookingNo,
+        newScheduleId,
+        newBookDate,
+        newSeats: newSeatLabels
+      },
+      charges: {
+        originalFare,
+        newFare,
+        reschedulingFee,
+        fareDifference,
+        totalDeduction,
+        newTotalFare,
+        waived: waiveFee || false
+      }
+    });
+
+  } catch (error) {
+    if (t) await t.rollback();
+    console.error('Error in admin reschedule:', error);
+    return res.status(500).json({
+      error: 'Failed to reschedule booking',
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getReschedulingDetails,
   rescheduleFlightBooking,
   rescheduleHelicopterBooking,
   getUserReschedulingHistory,
   createReschedulingOrder,
-  verifyReschedulingPayment
+  verifyReschedulingPayment,
+  adminRescheduleBooking
 };

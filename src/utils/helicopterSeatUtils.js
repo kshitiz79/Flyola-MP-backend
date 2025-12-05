@@ -55,7 +55,13 @@ async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, user
     transaction,
   });
   
-  if (!schedule || !schedule.Helicopter) {
+  if (!schedule) {
+    console.log(`[Helicopter Seats] Schedule ${schedule_id} not found`);
+    return [];
+  }
+  
+  if (!schedule.Helicopter) {
+    console.log(`[Helicopter Seats] Helicopter not found for schedule ${schedule_id}`);
     return [];
   }
   
@@ -70,7 +76,12 @@ async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, user
   const depIdx = route.indexOf(schedule.departure_helipad_id);
   const arrIdx = route.lastIndexOf(schedule.arrival_helipad_id);
   
+  console.log(`[Helicopter Seats] Route:`, route);
+  console.log(`[Helicopter Seats] Departure helipad ${schedule.departure_helipad_id} at index ${depIdx}`);
+  console.log(`[Helicopter Seats] Arrival helipad ${schedule.arrival_helipad_id} at index ${arrIdx}`);
+  
   if (depIdx < 0 || arrIdx < 0 || depIdx >= arrIdx) {
+    console.log(`[Helicopter Seats] Invalid route indices - returning empty seats`);
     return [];
   }
   

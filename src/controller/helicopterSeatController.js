@@ -57,9 +57,12 @@ async function getAvailableHelicopterSeatLabels(req, res) {
   }
 
   try {
+    console.log(`[Helicopter Seats] Fetching available seats for schedule_id=${schedule_id}, bookDate=${bookDate}`);
     const availableSeats = await getAvailableHelicopterSeats({ models, schedule_id, bookDate });
+    console.log(`[Helicopter Seats] Found ${availableSeats.length} available seats:`, availableSeats);
     res.json({ availableSeats });
   } catch (err) {
+    console.error(`[Helicopter Seats] Error fetching seats:`, err);
     res.status(500).json({ error: `Failed to fetch available helicopter seats: ${err.message}` });
   }
 }
