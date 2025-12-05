@@ -1,5 +1,5 @@
 const { format, toZonedTime } = require('date-fns-tz');
-// Removed unused import: const { getAvailableSeats } = require('../utils/seatUtils');
+const { getAvailableHelicopterSeats } = require('../utils/helicopterSeatUtils');
 
 // Helper function to safely parse via_stop_id
 function parseViaStopIds(viaStopIdRaw, scheduleId) {
@@ -29,73 +29,6 @@ function parseViaStopIds(viaStopIdRaw, scheduleId) {
   return viaStopIds;
 }
 
-// Helicopter-specific seat availability function
-async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, userId = null, transaction = null }) {
-  const schedule = await models.HelicopterSchedule.findByPk(schedule_id, {
-    include: [{ model: models.Helicopter, as: 'Helicopter' }],
-    transaction,
-  });
-  
-  if (!schedule || !schedule.Helicopter) {
-    return [];
-  }
-  
-  const helicopter = schedule.Helicopter;
-  const seatLimit = helicopter.seat_limit || 6;
-  
-  // Generate seat labels (S1, S2, etc.)
-  const allSeats = [];
-  for (let i = 1; i <= seatLimit; i++) {
-    allSeats.push(`S${i}`);
-  }
-  
-  // Get booked seats for this helicopter schedule on this date
-  const bookedSeatsRows = await models.BookedSeat.findAll({
-    where: {
-      schedule_id: schedule_id,
-      bookDate,
-    },
-    attributes: ['seat_label'],
-    transaction,
-  });
-  
-  // Get held seats (if SeatHold table exists)
-  const now = new Date();
-  let heldSeatsRows = [];
-  try {
-    if (userId) {
-      heldSeatsRows = await models.SeatHold.findAll({
-        where: {
-          schedule_id: schedule_id,
-          bookDate,
-          expires_at: { [models.Sequelize.Op.gt]: now },
-          held_by: { [models.Sequelize.Op.ne]: userId },
-        },
-        attributes: ['seat_label'],
-        transaction,
-      });
-    } else {
-      heldSeatsRows = await models.SeatHold.findAll({
-        where: {
-          schedule_id: schedule_id,
-          bookDate,
-          expires_at: { [models.Sequelize.Op.gt]: now },
-        },
-        attributes: ['seat_label'],
-        transaction,
-      });
-    }
-  } catch (error) {
-    // SeatHold table might not exist, ignore
-  }
-  
-  const bookedSeats = new Set(bookedSeatsRows.map((row) => row.seat_label));
-  const heldByOthers = new Set(heldSeatsRows.map((row) => row.seat_label));
-  const unavailableSeats = new Set([...bookedSeats, ...heldByOthers]);
-  
-  const availableSeats = allSeats.filter((seat) => !unavailableSeats.has(seat));
-  return availableSeats;
-}
 const getModels = () => require('../model');
 
 async function getHelicopterSchedules(req, res) {
