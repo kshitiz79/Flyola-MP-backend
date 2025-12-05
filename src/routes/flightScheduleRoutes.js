@@ -8,7 +8,7 @@ router.post('/update-flight-stops', ctrl.updateFlightStops);
 
 // Specific routes MUST come before parameterized routes
 router.get('/schedule-by-airport', ctrl.getScheduleBetweenAirportDate);
-router.get('/price-by-day/:id', ctrl.getSchedulePriceByDay);
+// router.get('/price-by-day/:id', ctrl.getSchedulePriceByDay);
 
 // General CRUD routes
 router.get('/', ctrl.getFlightSchedules);
