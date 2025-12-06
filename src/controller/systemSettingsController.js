@@ -31,7 +31,9 @@ const getBookingCutoffTime = async (req, res) => {
     const result = {
       flight_cutoff_time: '09:00',
       helicopter_cutoff_time: '09:00',
-      advance_booking_days: 0,
+      flight_advance_booking_days: 0,
+      helicopter_advance_booking_days: 0,
+      advance_booking_days: 0, // Deprecated - kept for backward compatibility
       helicopter_weight_price_per_kg: 500,
       helicopter_free_weight_limit: 75,
       description: 'Default booking cutoff settings'
@@ -44,7 +46,9 @@ const getBookingCutoffTime = async (req, res) => {
       } else if (setting.setting_key === 'helicopter_cutoff_time') {
         result.helicopter_cutoff_time = value.time;
       } else if (setting.setting_key === 'advance_booking_cutoff') {
-        result.advance_booking_days = value.days;
+        result.flight_advance_booking_days = value.flight_days !== undefined ? value.flight_days : (value.days || 0);
+        result.helicopter_advance_booking_days = value.helicopter_days !== undefined ? value.helicopter_days : (value.days || 0);
+        result.advance_booking_days = value.days || 0; // Deprecated
       } else if (setting.setting_key === 'helicopter_weight_price_per_kg') {
         result.helicopter_weight_price_per_kg = value.price_per_kg || 500;
         result.helicopter_free_weight_limit = value.free_weight_limit || 75;
@@ -62,7 +66,7 @@ const getBookingCutoffTime = async (req, res) => {
 const updateBookingCutoffTime = async (req, res) => {
   try {
     const admin = verifyAdmin(req);
-    const { flight_cutoff_time, helicopter_cutoff_time, advance_booking_days } = req.body;
+    const { flight_cutoff_time, helicopter_cutoff_time, flight_advance_booking_days, helicopter_advance_booking_days, advance_booking_days } = req.body;
 
     const updates = [];
 
@@ -120,32 +124,44 @@ const updateBookingCutoffTime = async (req, res) => {
       updates.push('helicopter_cutoff_time');
     }
 
-    // Update advance booking cutoff
-    if (advance_booking_days !== undefined) {
-      const days = parseInt(advance_booking_days);
-      if (isNaN(days) || days < 0 || days > 30) {
+    // Update advance booking cutoff (separate for flight and helicopter)
+    if (flight_advance_booking_days !== undefined || helicopter_advance_booking_days !== undefined || advance_booking_days !== undefined) {
+      const flightDays = flight_advance_booking_days !== undefined ? parseInt(flight_advance_booking_days) : parseInt(advance_booking_days || 0);
+      const helicopterDays = helicopter_advance_booking_days !== undefined ? parseInt(helicopter_advance_booking_days) : parseInt(advance_booking_days || 0);
+      
+      if (isNaN(flightDays) || flightDays < 0 || flightDays > 30) {
         return res.status(400).json({ 
-          error: 'Invalid advance booking days. Must be between 0 and 30' 
+          error: 'Invalid flight advance booking days. Must be between 0 and 30' 
+        });
+      }
+      
+      if (isNaN(helicopterDays) || helicopterDays < 0 || helicopterDays > 30) {
+        return res.status(400).json({ 
+          error: 'Invalid helicopter advance booking days. Must be between 0 and 30' 
         });
       }
 
       const [setting, created] = await models.SystemSettings.findOrCreate({
         where: { setting_key: 'advance_booking_cutoff' },
         defaults: {
-          setting_value: JSON.stringify({ days: days }),
-          description: days === 0 
-            ? 'No advance booking cutoff (same-day only)'
-            : `Bookings disabled ${days} day(s) before departure`,
+          setting_value: JSON.stringify({ 
+            flight_days: flightDays,
+            helicopter_days: helicopterDays,
+            days: flightDays // Deprecated - kept for backward compatibility
+          }),
+          description: `Flight: ${flightDays} day(s), Helicopter: ${helicopterDays} day(s) before departure`,
           updated_by: admin.id
         }
       });
 
       if (!created) {
         await setting.update({
-          setting_value: JSON.stringify({ days: days }),
-          description: days === 0 
-            ? 'No advance booking cutoff (same-day only)'
-            : `Bookings disabled ${days} day(s) before departure`,
+          setting_value: JSON.stringify({ 
+            flight_days: flightDays,
+            helicopter_days: helicopterDays,
+            days: flightDays // Deprecated
+          }),
+          description: `Flight: ${flightDays} day(s), Helicopter: ${helicopterDays} day(s) before departure`,
           updated_by: admin.id
         });
       }

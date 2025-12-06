@@ -44,6 +44,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
+// Serve uploaded files
+app.use('/uploads', express.static('uploads'));
+
 // Create HTTP server and attach Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -92,6 +95,7 @@ app.use('/helicopter-seat', require('./src/routes/helicopterSeatRoutes'));
 app.use('/api/joyride-bookings', require('./src/routes/joyRideBookings'));
 app.use('/api/admin', require('./src/routes/adminDashboard'));
 app.use('/system-settings', require('./src/routes/systemSettingsRoutes'));
+app.use('/api/schedule-file', require('./src/routes/scheduleFile'));
 
 
 // Error handling middleware
