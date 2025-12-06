@@ -59,7 +59,60 @@ async function getAllPassengers(req, res) {
 
 
 
-module.exports = { createPassenger , getAllPassengers };  // Export the functions as a module
+// Get passengers for a specific helicopter booking
+async function getHelicopterPassengers(req, res) {
+    try {
+        const models = require('../model');
+        const { bookingId } = req.params;
+
+        if (!bookingId) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Booking ID is required' 
+            });
+        }
+
+        // First, verify the booking exists
+        const booking = await models.HelicopterBooking.findByPk(bookingId);
+        if (!booking) {
+            return res.status(404).json({ 
+                success: false,
+                error: `Helicopter booking with ID ${bookingId} not found` 
+            });
+        }
+
+        // Fetch passengers for this booking
+        const passengers = await models.HelicopterPassenger.findAll({
+            where: {
+                helicopter_bookingId: bookingId
+            },
+            attributes: ['id', 'helicopter_bookingId', 'title', 'name', 'dob', 'age', 'weight', 'type', 'created_at', 'updated_at'],
+            order: [['id', 'ASC']]
+        });
+
+        return res.status(200).json({
+            success: true,
+            bookingId: bookingId,
+            pnr: booking.pnr,
+            bookingNo: booking.bookingNo,
+            totalPassengers: passengers.length,
+            passengers: passengers
+        });
+
+    } catch (err) {
+        console.error('Error fetching helicopter passengers:', err);
+        return res.status(500).json({ 
+            success: false,
+            error: `Failed to fetch helicopter passengers: ${err.message}` 
+        });
+    }
+}
+
+module.exports = { 
+    createPassenger, 
+    getAllPassengers,
+    getHelicopterPassengers 
+};  // Export the functions as a module
 
 
 
