@@ -2,7 +2,6 @@
 const express = require('express');
 const router = express.Router();
 const bookingController = require('../controller/bookingController');
-const passengerController = require('../controller/passengerController');
 const { authenticate } = require('../middleware/auth');
 
 // Stats endpoints (public for operations dashboard)
@@ -20,7 +19,7 @@ router.post('/irctc/reschedule/:id(\\d+)', bookingController.rescheduleIrctcBook
 router.post('/helicopter/cancel/:id(\\d+)', bookingController.cancelHelicopterBooking);
 router.post('/helicopter/reschedule/:id(\\d+)', bookingController.rescheduleHelicopterBooking);
 router.get('/helicopter-bookings', bookingController.getHelicopterBookings);
-router.get('/helicopter-bookings/:bookingId/passengers', passengerController.getHelicopterPassengers);
+
 router.get('/', bookingController.getBookings);
 
 router.use(authenticate());

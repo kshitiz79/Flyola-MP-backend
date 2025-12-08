@@ -74,7 +74,7 @@ router.post('/login', async (req, res) => {
       role: Number(user.role),
       remember_token: user.remember_token || null
     };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' }); // Extended token life
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' }); // Match cookie expiration
 
     return res.json({
       message: 'Login successful',
@@ -104,14 +104,14 @@ router.post('/refresh-token', authenticate(), async (req, res) => {
       remember_token: req.user.remember_token || null
     };
 
-    const newToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' });
+    const newToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     console.log('[Token Refresh] New token generated successfully');
 
     return res.json({
       success: true,
       token: newToken,
-      expiresIn: 86400, // 24 hours in seconds
+      expiresIn: 604800, // 7 days in seconds (7 * 24 * 60 * 60)
       message: 'Token refreshed successfully'
     });
   } catch (error) {
