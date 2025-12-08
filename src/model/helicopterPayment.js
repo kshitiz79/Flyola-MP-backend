@@ -41,6 +41,10 @@ const HelicopterPayment = sequelize.define(
       type: DataTypes.BIGINT.UNSIGNED,
       allowNull: false,
     },
+    refund_id: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     created_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,

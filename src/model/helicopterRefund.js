@@ -69,6 +69,14 @@ const HelicopterRefund = sequelize.define('HelicopterRefund', {
             model: 'users',
             key: 'id'
         }
+    },
+    razorpay_refund_id: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    razorpay_refund_status: {
+        type: DataTypes.STRING,
+        allowNull: true
     }
 }, {
     tableName: 'helicopter_refunds',
