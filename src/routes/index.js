@@ -6,4 +6,7 @@ router.get('/', (req, res) => {
   res.json({ message: "Welcome to the backend API!" });
 });
 
+// Mount rental inquiry routes
+router.use('/rental-inquiry', require('./rentalInquiry'));
+
 module.exports = router;
