@@ -1165,4 +1165,46 @@ router.post('/profile', authenticate(), async (req, res) => {
   }
 });
 
+/** Delete Own Account - User can delete their own account **/
+router.delete('/profile', authenticate(), async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Check if models are available
+    if (!models.User) {
+      return res.status(500).json({ error: 'User model not available' });
+    }
+
+    const user = await models.User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if user has any active bookings
+    const bookingCount = await models.Booking.count({ 
+      where: { bookedUserId: userId } 
+    });
+
+    if (bookingCount > 0) {
+      return res.status(400).json({
+        error: `Cannot delete account with ${bookingCount} existing bookings. Please cancel all bookings first or contact support.`
+      });
+    }
+
+    // Delete the user account
+    await user.destroy();
+
+    return res.json({ 
+      message: 'Account deleted successfully',
+      success: true 
+    });
+  } catch (err) {
+    console.error('Error deleting account:', err);
+    return res.status(500).json({
+      error: 'Server error while deleting account',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
 module.exports = router;
