@@ -608,7 +608,56 @@ router.put('/:id', authenticate([1]), async (req, res) => {
   }
 });
 
-/** Delete User **/
+/** Delete Own Account - User can delete their own account - MUST be before /:id route **/
+router.delete('/profile', authenticate(), async (req, res) => {
+  try {
+    console.log('[Delete Account] Request received from user:', req.user);
+    const userId = req.user.id;
+
+    // Check if models are available
+    if (!models.User) {
+      return res.status(500).json({ error: 'User model not available' });
+    }
+
+    const user = await models.User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log('[Delete Account] User found:', { id: user.id, email: user.email });
+
+    // Check if user has any active bookings
+    const bookingCount = await models.Booking.count({ 
+      where: { bookedUserId: userId } 
+    });
+
+    console.log('[Delete Account] Booking count:', bookingCount);
+
+    if (bookingCount > 0) {
+      return res.status(400).json({
+        error: `Cannot delete account with ${bookingCount} existing bookings. Please cancel all bookings first or contact support.`
+      });
+    }
+
+    // Delete the user account
+    await user.destroy();
+
+    console.log('[Delete Account] Account deleted successfully for user:', userId);
+
+    return res.json({ 
+      message: 'Account deleted successfully',
+      success: true 
+    });
+  } catch (err) {
+    console.error('[Delete Account] Error:', err);
+    return res.status(500).json({
+      error: 'Server error while deleting account',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
+/** Delete User (Admin only) **/
 router.delete('/:id', authenticate([1]), async (req, res) => {
   const userId = req.params.id;
 
@@ -1160,48 +1209,6 @@ router.post('/profile', authenticate(), async (req, res) => {
 
     return res.status(500).json({
       error: 'Server error',
-      details: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-});
-
-/** Delete Own Account - User can delete their own account **/
-router.delete('/profile', authenticate(), async (req, res) => {
-  try {
-    const userId = req.user.id;
-
-    // Check if models are available
-    if (!models.User) {
-      return res.status(500).json({ error: 'User model not available' });
-    }
-
-    const user = await models.User.findByPk(userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Check if user has any active bookings
-    const bookingCount = await models.Booking.count({ 
-      where: { bookedUserId: userId } 
-    });
-
-    if (bookingCount > 0) {
-      return res.status(400).json({
-        error: `Cannot delete account with ${bookingCount} existing bookings. Please cancel all bookings first or contact support.`
-      });
-    }
-
-    // Delete the user account
-    await user.destroy();
-
-    return res.json({ 
-      message: 'Account deleted successfully',
-      success: true 
-    });
-  } catch (err) {
-    console.error('Error deleting account:', err);
-    return res.status(500).json({
-      error: 'Server error while deleting account',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
