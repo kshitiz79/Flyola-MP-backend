@@ -16,7 +16,7 @@ async function detectOrphanedPayments() {
         }
       },
       include: [
-        { model: models.User, attributes: ['id', 'name', 'email', 'phone'] }
+        { model: models.User, attributes: ['id', 'name', 'email', 'number'] }
       ],
       order: [['created_at', 'DESC']]
     });
@@ -31,7 +31,7 @@ async function detectOrphanedPayments() {
         }
       },
       include: [
-        { model: models.User, attributes: ['id', 'name', 'email', 'phone'] }
+        { model: models.User, attributes: ['id', 'name', 'email', 'number'] }
       ],
       order: [['created_at', 'DESC']]
     });
@@ -64,7 +64,7 @@ async function detectOrphanedPayments() {
         console.log(`   Transaction ID: ${payment.transaction_id}`);
         console.log(`   Amount: ₹${amount.toFixed(2)}`);
         console.log(`   User: ${payment.User?.name || 'Unknown'} (${payment.User?.email || 'N/A'})`);
-        console.log(`   Phone: ${payment.User?.phone || 'N/A'}`);
+        console.log(`   Phone: ${payment.User?.number || 'N/A'}`);
         console.log(`   Date: ${payment.created_at}`);
         console.log(`   Payment Mode: ${payment.payment_mode}`);
         console.log(`   Order ID: ${payment.order_id || 'N/A'}`);
@@ -84,7 +84,7 @@ async function detectOrphanedPayments() {
         console.log(`   Transaction ID: ${payment.transaction_id}`);
         console.log(`   Amount: ₹${amount.toFixed(2)}`);
         console.log(`   User: ${payment.User?.name || 'Unknown'} (${payment.User?.email || 'N/A'})`);
-        console.log(`   Phone: ${payment.User?.phone || 'N/A'}`);
+        console.log(`   Phone: ${payment.User?.number || 'N/A'}`);
         console.log(`   Date: ${payment.created_at}`);
         console.log(`   Payment Mode: ${payment.payment_mode}`);
         console.log(`   Order ID: ${payment.order_id || 'N/A'}`);
@@ -105,11 +105,11 @@ async function detectOrphanedPayments() {
     console.log('Type,Payment ID,Transaction ID,Amount,User Name,Email,Phone,Date,Payment Mode,Order ID');
     
     orphanedFlightPayments.forEach(payment => {
-      console.log(`Flight,${payment.payment_id || ''},${payment.transaction_id},${payment.payment_amount},${payment.User?.name || ''},${payment.User?.email || ''},${payment.User?.phone || ''},${payment.created_at},${payment.payment_mode},${payment.order_id || ''}`);
+      console.log(`Flight,${payment.payment_id || ''},${payment.transaction_id},${payment.payment_amount},${payment.User?.name || ''},${payment.User?.email || ''},${payment.User?.number || ''},${payment.created_at},${payment.payment_mode},${payment.order_id || ''}`);
     });
     
     orphanedHelicopterPayments.forEach(payment => {
-      console.log(`Helicopter,${payment.payment_id || ''},${payment.transaction_id},${payment.payment_amount},${payment.User?.name || ''},${payment.User?.email || ''},${payment.User?.phone || ''},${payment.created_at},${payment.payment_mode},${payment.order_id || ''}`);
+      console.log(`Helicopter,${payment.payment_id || ''},${payment.transaction_id},${payment.payment_amount},${payment.User?.name || ''},${payment.User?.email || ''},${payment.User?.number || ''},${payment.created_at},${payment.payment_mode},${payment.order_id || ''}`);
     });
     
     console.log('\n');
