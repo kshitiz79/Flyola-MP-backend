@@ -3,6 +3,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const http = require('http'); // Added for HTTP server
 const { Server } = require('socket.io'); // Added for Socket.IO
+const { requestLogger, errorLogger } = require('./src/middleware/loggingMiddleware');
 require('dotenv').config();
 
 const app = express();
@@ -43,6 +44,9 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
+
+// Add request logging middleware
+app.use(requestLogger);
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
@@ -103,6 +107,9 @@ const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler
 
 // Handle unmatched routes
 app.use(notFoundHandler);
+
+// Add error logging middleware before global error handler
+app.use(errorLogger);
 
 // Global error handler
 app.use(errorHandler);

@@ -472,21 +472,26 @@ async function completeBooking(req, res) {
             let scheduleDetails = {};
 
             if (isHelicopterBooking) {
-                const fullHelicopterSchedule = await models.HelicopterSchedule.findByPk(bookedSeat.schedule_id, {
-                    include: [
-                        { model: models.Helipad, as: 'DepartureLocation' },
-                        { model: models.Helipad, as: 'ArrivalLocation' },
-                        { model: models.Helicopter, as: 'Helicopter' }
-                    ]
-                });
+                // Fetch helicopter schedule details separately to avoid association conflicts
+                const fullHelicopterSchedule = await models.HelicopterSchedule.findByPk(bookedSeat.schedule_id);
+                let departureHelipad = null;
+                let arrivalHelipad = null;
+                let helicopter = null;
+
+                if (fullHelicopterSchedule) {
+                    // Fetch related data separately to avoid eager loading conflicts
+                    departureHelipad = await models.Helipad.findByPk(fullHelicopterSchedule.departure_helipad_id);
+                    arrivalHelipad = await models.Helipad.findByPk(fullHelicopterSchedule.arrival_helipad_id);
+                    helicopter = await models.Helicopter.findByPk(fullHelicopterSchedule.helicopter_id);
+                }
 
                 if (fullHelicopterSchedule) {
                     scheduleDetails = {
-                        departureCity: fullHelicopterSchedule.DepartureLocation?.helipad_name || 'N/A',
-                        arrivalCity: fullHelicopterSchedule.ArrivalLocation?.helipad_name || 'N/A',
+                        departureCity: departureHelipad?.helipad_name || 'N/A',
+                        arrivalCity: arrivalHelipad?.helipad_name || 'N/A',
                         departureTime: fullHelicopterSchedule.departure_time,
                         arrivalTime: fullHelicopterSchedule.arrival_time,
-                        flightNumber: fullHelicopterSchedule.Helicopter?.helicopter_number || 'N/A',
+                        flightNumber: helicopter?.helicopter_number || 'N/A',
                     };
                 }
             } else {
@@ -543,6 +548,20 @@ async function completeBooking(req, res) {
 
         } catch (emailError) {
             console.error('Failed to send confirmation emails:', emailError);
+            
+            // Log the email error
+            const { logError } = require('./logsController');
+            logError(
+                emailError,
+                'bookingController.js:completeBooking',
+                booking.bookedUserId,
+                {
+                    bookingId: newBooking.id,
+                    paymentId: payment.payment_id,
+                    bookingType: isHelicopterBooking ? 'helicopter' : 'flight'
+                },
+                'HIGH'
+            );
         }
 
         // Return complete booking data with PNR and all details
@@ -574,6 +593,37 @@ async function completeBooking(req, res) {
         });
     } catch (err) {
         if (transaction) await transaction.rollback();
+        
+        // Log the booking error
+        const { logError, logActivity } = require('./logsController');
+        logError(
+            err,
+            'bookingController.js:completeBooking',
+            booking?.bookedUserId,
+            {
+                paymentId: payment?.payment_id,
+                bookingData: booking,
+                paymentData: payment
+            },
+            'CRITICAL'
+        );
+
+        // Log failed booking activity
+        if (booking?.bookedUserId) {
+            logActivity(
+                booking.bookedUserId,
+                'BOOKING_FAILED',
+                `Booking creation failed: ${err.message}`,
+                {
+                    error: err.message,
+                    paymentId: payment?.payment_id,
+                    scheduleId: bookedSeat?.schedule_id
+                },
+                req,
+                'FAILED'
+            );
+        }
+        
         return res.status(400).json({ error: `Failed to complete booking: ${err.message}` });
     }
 }
@@ -1413,16 +1463,6 @@ async function getUserBookings(req, res) {
                             model: models.Helicopter,
                             required: false,
                             as: 'Helicopter'
-                        },
-                        {
-                            model: models.Helipad,
-                            required: false,
-                            as: 'DepartureLocation'
-                        },
-                        {
-                            model: models.Helipad,
-                            required: false,
-                            as: 'ArrivalLocation'
                         }
                     ]
                 },
@@ -1456,14 +1496,22 @@ async function getUserBookings(req, res) {
             helicopterBookings.map(async (b) => {
                 const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
 
+                // Fetch helipad data separately to avoid association conflicts
+                let departureHelipad = null;
+                let arrivalHelipad = null;
+                if (b.HelicopterSchedule) {
+                    departureHelipad = await models.Helipad.findByPk(b.HelicopterSchedule.departure_helipad_id);
+                    arrivalHelipad = await models.Helipad.findByPk(b.HelicopterSchedule.arrival_helipad_id);
+                }
+
                 return {
                     ...b.toJSON(),
                     seatLabels: b.BookedSeats?.map((s) => s.seat_label) || [],
                     billing: billing ? billing.toJSON() : null,
                     bookingType: 'helicopter',
                     helicopterNumber: b.HelicopterSchedule?.Helicopter?.helicopter_number || 'N/A',
-                    departureHelipad: b.HelicopterSchedule?.DepartureLocation?.helipad_name || 'N/A',
-                    arrivalHelipad: b.HelicopterSchedule?.ArrivalLocation?.helipad_name || 'N/A',
+                    departureHelipad: departureHelipad?.helipad_name || 'N/A',
+                    arrivalHelipad: arrivalHelipad?.helipad_name || 'N/A',
                     departureTime: b.HelicopterSchedule?.departure_time || 'N/A',
                     arrivalTime: b.HelicopterSchedule?.arrival_time || 'N/A',
                 };
@@ -1599,16 +1647,6 @@ async function getHelicopterBookings(req, res) {
                             model: models.Helicopter,
                             required: true,
                             as: 'Helicopter'
-                        },
-                        {
-                            model: models.Helipad,
-                            required: true,
-                            as: 'DepartureLocation'
-                        },
-                        {
-                            model: models.Helipad,
-                            required: true,
-                            as: 'ArrivalLocation'
                         }
                     ]
                 },
@@ -1629,6 +1667,14 @@ async function getHelicopterBookings(req, res) {
                 try {
                     const billing = await models.Billing.findOne({ where: { user_id: b.bookedUserId } });
 
+                    // Fetch helipad data separately to avoid association conflicts
+                    let departureHelipad = null;
+                    let arrivalHelipad = null;
+                    if (b.HelicopterSchedule) {
+                        departureHelipad = await models.Helipad.findByPk(b.HelicopterSchedule.departure_helipad_id);
+                        arrivalHelipad = await models.Helipad.findByPk(b.HelicopterSchedule.arrival_helipad_id);
+                    }
+
                     const seatLabels = b.BookedSeats?.map((s) => s.seat_label).join(", ") || "N/A";
                     const passengerNames = b.Passengers?.map((p) => p.name).join(", ") || "N/A";
                     const paymentMode = b.Payments?.[0]?.payment_mode || b.pay_mode || "N/A";
@@ -1646,8 +1692,8 @@ async function getHelicopterBookings(req, res) {
                         transactionId: transactionId,
                         agentId: agentId,
                         helicopterNumber: b.HelicopterSchedule?.Helicopter?.helicopter_number || "N/A",
-                        departureHelipad: b.HelicopterSchedule?.DepartureLocation?.helipad_name || b.HelicopterSchedule?.DepartureLocation?.city || "N/A",
-                        arrivalHelipad: b.HelicopterSchedule?.ArrivalLocation?.helipad_name || b.HelicopterSchedule?.ArrivalLocation?.city || "N/A",
+                        departureHelipad: departureHelipad?.helipad_name || departureHelipad?.city || "N/A",
+                        arrivalHelipad: arrivalHelipad?.helipad_name || arrivalHelipad?.city || "N/A",
                         departureTime: b.HelicopterSchedule?.departure_time || "N/A",
                         arrivalTime: b.HelicopterSchedule?.arrival_time || "N/A",
                         userRole: "3",
@@ -1662,7 +1708,7 @@ async function getHelicopterBookings(req, res) {
                         passengerNames: b.Passengers?.map((p) => p.name).join(", ") || "N/A",
                         billingName: "N/A",
                         paymentMode: b.Payments?.[0]?.payment_mode || b.pay_mode || "N/A",
-                        transactionId: b.Payments?.[0]?.transaction_id || b.transactionId || "N/A",
+                        transactionId: b.Passengers?.[0]?.transaction_id || b.transactionId || "N/A",
                         agentId: b.Agent?.agentId || "FLYOLA",
                         helicopterNumber: "N/A",
                         departureHelipad: "N/A",
@@ -2198,9 +2244,7 @@ async function getBookingsByUser(req, res) {
                     model: models.HelicopterSchedule,
                     required: false,
                     include: [
-                        { model: models.Helicopter, required: false, as: 'Helicopter' },
-                        { model: models.Helipad, required: false, as: 'DepartureLocation' },
-                        { model: models.Helipad, required: false, as: 'ArrivalLocation' }
+                        { model: models.Helicopter, required: false, as: 'Helicopter' }
                     ]
                 },
                 { model: models.HelicopterBookedSeat, as: 'BookedSeats', attributes: ['seat_label'], required: false },
@@ -2252,26 +2296,6 @@ async function getBookingsByUser(req, res) {
 }
 
 
-module.exports = {
-    completeBooking,
-    bookSeatsWithoutPayment,
-    bookHelicopterSeatsWithoutPayment,
-    generatePNR: generatePNRController,
-    getBookings,
-    getBookingById,
-    getIrctcBookings,
-    getUserBookings,
-    createBooking,
-    updateBooking,
-    deleteBooking,
-    getBookingSummary,
-    getBookingByPnr,
-    cancelIrctcBooking,
-    rescheduleIrctcBooking,
-    cancelHelicopterBooking,
-    rescheduleHelicopterBooking,
-    getBookingsByUser,
-}
 
 
 // Complete booking with discount coupon

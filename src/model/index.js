@@ -30,6 +30,11 @@ const models = {
   HelicopterPayment: require('./helicopterPayment'),
   HelicopterRefund: require('./helicopterRefund'),
   SystemSettings: require('./systemSettings'),
+  // Logging models
+  SystemLog: require('./systemLog'),
+  UserActivityLog: require('./userActivityLog'),
+  ErrorLog: require('./errorLog'),
+  ApiRequestLog: require('./apiRequestLog'),
 
   sequelize,
   Sequelize,
