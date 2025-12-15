@@ -113,8 +113,8 @@ const getReschedulingDetails = async (req, res) => {
       scheduleId: currentSchedule?.id,
       departureAirportId: currentSchedule?.departure_airport_id,
       arrivalAirportId: currentSchedule?.arrival_airport_id,
-      departureLocationId: currentSchedule?.departure_location_id,
-      arrivalLocationId: currentSchedule?.arrival_location_id,
+      departureHelipadId: currentSchedule?.departure_helipad_id,
+      arrivalHelipadId: currentSchedule?.arrival_helipad_id,
       hasDepartureAirport: !!currentSchedule?.DepartureAirport,
       hasArrivalAirport: !!currentSchedule?.ArrivalAirport
     });
@@ -122,8 +122,8 @@ const getReschedulingDetails = async (req, res) => {
     // Build where clause based on booking type
     const whereClause = bookingType === 'helicopter'
       ? {
-          departure_location_id: currentSchedule.departure_location_id,
-          arrival_location_id: currentSchedule.arrival_location_id,
+          departure_helipad_id: currentSchedule.departure_helipad_id,
+          arrival_helipad_id: currentSchedule.arrival_helipad_id,
           status: 1
         }
       : {
@@ -253,11 +253,11 @@ const getReschedulingDetails = async (req, res) => {
       currentArrivalLocation = currentSchedule.ArrivalLocation;
       
       // Fallback: manually fetch if not loaded
-      if (!currentDepartureLocation && currentSchedule.departure_location_id) {
-        currentDepartureLocation = await models.Helipad.findByPk(currentSchedule.departure_location_id);
+      if (!currentDepartureLocation && currentSchedule.departure_helipad_id) {
+        currentDepartureLocation = await models.Helipad.findByPk(currentSchedule.departure_helipad_id);
       }
-      if (!currentArrivalLocation && currentSchedule.arrival_location_id) {
-        currentArrivalLocation = await models.Helipad.findByPk(currentSchedule.arrival_location_id);
+      if (!currentArrivalLocation && currentSchedule.arrival_helipad_id) {
+        currentArrivalLocation = await models.Helipad.findByPk(currentSchedule.arrival_helipad_id);
       }
     } else {
       currentDepartureLocation = currentSchedule.DepartureAirport;
