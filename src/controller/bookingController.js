@@ -1858,12 +1858,63 @@ async function getBookingByPnr(req, res) {
             return res.status(400).json({ error: 'Invalid PNR. Must be a string of at least 6 characters.' });
         }
 
+        // First try to find in helicopter bookings
+        let helicopterBooking = await models.HelicopterBooking.findOne({
+            where: { pnr },
+            include: [
+                { model: models.HelicopterBookedSeat, as: 'BookedSeats', attributes: ['seat_label'], required: false },
+                { model: models.HelicopterPassenger, as: 'Passengers', required: false },
+                { 
+                    model: models.HelicopterSchedule, 
+                    required: false,
+                    include: [
+                        { model: models.Helicopter, as: 'Helicopter', required: false }
+                    ]
+                },
+                { model: models.HelicopterPayment, as: 'Payments', required: false },
+                { model: models.Agent, required: false },
+            ],
+        });
+
+        if (helicopterBooking) {
+            const billing = await models.Billing.findOne({ where: { user_id: helicopterBooking.bookedUserId } });
+
+            // Fetch helipad data separately
+            let departureHelipad = null;
+            let arrivalHelipad = null;
+            if (helicopterBooking.HelicopterSchedule) {
+                departureHelipad = await models.Helipad.findByPk(helicopterBooking.HelicopterSchedule.departure_helipad_id);
+                arrivalHelipad = await models.Helipad.findByPk(helicopterBooking.HelicopterSchedule.arrival_helipad_id);
+            }
+
+            const response = {
+                ...helicopterBooking.toJSON(),
+                seatLabels: helicopterBooking.BookedSeats?.map((s) => s.seat_label) || [],
+                billing: billing ? billing.toJSON() : null,
+                bookingType: 'helicopter',
+                helicopterNumber: helicopterBooking.HelicopterSchedule?.Helicopter?.helicopter_number || 'N/A',
+                departureHelipad: departureHelipad?.helipad_name || departureHelipad?.city || 'N/A',
+                arrivalHelipad: arrivalHelipad?.helipad_name || arrivalHelipad?.city || 'N/A',
+                departureTime: helicopterBooking.HelicopterSchedule?.departure_time || 'N/A',
+                arrivalTime: helicopterBooking.HelicopterSchedule?.arrival_time || 'N/A',
+            };
+
+            return res.status(200).json(response);
+        }
+
+        // If not found in helicopter bookings, try regular flight bookings
         const booking = await models.Booking.findOne({
             where: { pnr },
             include: [
                 { model: models.BookedSeat, attributes: ['seat_label'], required: false },
                 { model: models.Passenger, required: false },
-                { model: models.FlightSchedule, required: false },
+                { 
+                    model: models.FlightSchedule, 
+                    required: false,
+                    include: [
+                        { model: models.Flight, required: false }
+                    ]
+                },
                 { model: models.Payment, as: 'Payments', required: false },
                 { model: models.Agent, required: false },
             ],
@@ -1877,13 +1928,15 @@ async function getBookingByPnr(req, res) {
 
         const response = {
             ...booking.toJSON(),
-            seatLabels: booking.BookedSeats.map((s) => s.seat_label),
+            seatLabels: booking.BookedSeats?.map((s) => s.seat_label) || [],
             billing: billing ? billing.toJSON() : null,
+            bookingType: 'flight',
+            flightNumber: booking.FlightSchedule?.Flight?.flight_number || `FL${booking.FlightSchedule?.flight_id || booking.schedule_id || '001'}`,
         };
 
         return res.status(200).json(response);
     } catch (err) {
-        return res.status(500).json({ error: 'Failed to fetch booking' });
+        return res.status(500).json({ error: 'Failed to fetch booking: ' + err.message });
     }
 }
 
