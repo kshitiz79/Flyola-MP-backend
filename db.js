@@ -37,7 +37,7 @@ module.exports = pool;
 
 
 // GNU nano 7.2                                                                      .env                                                                              JWT_SECRET=dhjwbkhnlmjnwdehbk
-// NEXT_PUBLIC_API_URL=http://localhost:4000 
+// NEXT_PUBLIC_API_URL=https://app.jetserveaviation.com 
 
 
 

@@ -140,7 +140,7 @@ const getReschedulingDetails = async (req, res) => {
         ? [
             { model: models.Helipad, as: 'DepartureLocation' },
             { model: models.Helipad, as: 'ArrivalLocation' },
-            { model: models.Helicopter }
+            { model: models.Helicopter, as: 'Helicopter' }
           ]
         : [
             { model: models.Airport, as: 'DepartureAirport' },
