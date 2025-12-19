@@ -40,15 +40,15 @@ async function validateCoupon(req, res) {
     // Calculate discount
     let discountAmount = 0;
     if (coupon.discount_type === 'percentage') {
-      discountAmount = (bookingAmount * coupon.discount_value) / 100;
-      if (coupon.max_discount && discountAmount > coupon.max_discount) {
-        discountAmount = coupon.max_discount;
+      discountAmount = (parseFloat(bookingAmount) * parseFloat(coupon.discount_value)) / 100;
+      if (coupon.max_discount && discountAmount > parseFloat(coupon.max_discount)) {
+        discountAmount = parseFloat(coupon.max_discount);
       }
     } else {
-      discountAmount = coupon.discount_value;
+      discountAmount = parseFloat(coupon.discount_value);
     }
 
-    const finalAmount = Math.max(0, bookingAmount - discountAmount);
+    const finalAmount = Math.max(0, parseFloat(bookingAmount) - discountAmount);
 
     return res.status(200).json({
       valid: true,
@@ -58,15 +58,19 @@ async function validateCoupon(req, res) {
         discount_type: coupon.discount_type,
         discount_value: coupon.discount_value
       },
-      originalAmount: bookingAmount,
-      discountAmount: discountAmount.toFixed(2),
-      finalAmount: finalAmount.toFixed(2),
-      savings: discountAmount.toFixed(2)
+      originalAmount: parseFloat(bookingAmount),
+      discountAmount: parseFloat(discountAmount.toFixed(2)),
+      finalAmount: parseFloat(finalAmount.toFixed(2)),
+      savings: parseFloat(discountAmount.toFixed(2))
     });
 
   } catch (error) {
     console.error('Validate coupon error:', error);
-    return res.status(500).json({ error: 'Failed to validate coupon' });
+    return res.status(500).json({ 
+      error: 'Failed to validate coupon',
+      details: error.message,
+      debug: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 }
 
@@ -122,8 +126,18 @@ async function createCoupon(req, res) {
     if (error.name === 'SequelizeUniqueConstraintError') {
       return res.status(400).json({ error: 'Coupon code already exists' });
     }
+    if (error.name === 'SequelizeValidationError') {
+      return res.status(400).json({ 
+        error: 'Validation error',
+        details: error.errors.map(e => ({ field: e.path, message: e.message }))
+      });
+    }
     console.error('Create coupon error:', error);
-    return res.status(500).json({ error: 'Failed to create coupon' });
+    return res.status(500).json({ 
+      error: 'Failed to create coupon',
+      details: error.message,
+      debug: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 }
 
@@ -277,12 +291,12 @@ async function getAutoApplyCoupons(req, res) {
     const couponsWithDiscount = validCoupons.map(coupon => {
       let discountAmount = 0;
       if (coupon.discount_type === 'percentage') {
-        discountAmount = (amount * coupon.discount_value) / 100;
-        if (coupon.max_discount && discountAmount > coupon.max_discount) {
-          discountAmount = coupon.max_discount;
+        discountAmount = (amount * parseFloat(coupon.discount_value)) / 100;
+        if (coupon.max_discount && discountAmount > parseFloat(coupon.max_discount)) {
+          discountAmount = parseFloat(coupon.max_discount);
         }
       } else {
-        discountAmount = coupon.discount_value;
+        discountAmount = parseFloat(coupon.discount_value);
       }
 
       return {

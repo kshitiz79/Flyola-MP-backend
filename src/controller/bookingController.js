@@ -2429,12 +2429,12 @@ async function completeBookingWithDiscount(req, res) {
 
             // Calculate discount
             if (coupon.discount_type === 'percentage') {
-                discountAmount = (originalTotalFare * coupon.discount_value) / 100;
-                if (coupon.max_discount && discountAmount > coupon.max_discount) {
-                    discountAmount = coupon.max_discount;
+                discountAmount = (parseFloat(originalTotalFare) * parseFloat(coupon.discount_value)) / 100;
+                if (coupon.max_discount && discountAmount > parseFloat(coupon.max_discount)) {
+                    discountAmount = parseFloat(coupon.max_discount);
                 }
             } else {
-                discountAmount = coupon.discount_value;
+                discountAmount = parseFloat(coupon.discount_value);
             }
 
             finalTotalFare = Math.max(0, originalTotalFare - discountAmount);
