@@ -18,6 +18,9 @@ const models = {
   JoyRideBooking: require('./joyRideBooking'),
   JoyRideSchedule: require('./joyRideSchedule'),
   Refund: require('./refund'),
+  // Coupon models
+  Coupon: require('./coupon'),
+  CouponUsage: require('./couponUsage'),
   // Helicopter models
   Helipad: require('./helipad')(sequelize, Sequelize.DataTypes),
   Helicopter: require('./helicopter')(sequelize, Sequelize.DataTypes),
@@ -71,6 +74,16 @@ models.JoyRideSchedule.belongsTo(models.Helipad, {
 models.JoyRideSchedule.belongsTo(models.Helipad, { 
   foreignKey: 'stop_helipad_id',
   as: 'stopHelipad'
+});
+
+// Coupon associations
+models.CouponUsage.belongsTo(models.Coupon, { 
+  foreignKey: 'coupon_id',
+  as: 'coupon'
+});
+models.Coupon.hasMany(models.CouponUsage, { 
+  foreignKey: 'coupon_id',
+  as: 'usages'
 });
 
 module.exports = models;

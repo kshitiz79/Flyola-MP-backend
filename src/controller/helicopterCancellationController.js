@@ -338,8 +338,8 @@ const cancelBooking = async (req, res) => {
         const booking = await models.HelicopterBooking.findByPk(bookingId, {
             include: [
                 { model: models.HelicopterSchedule },
-                { model: models.Payment, as: 'Payments' },
-                { model: models.Passenger, as: 'Passengers' },
+                { model: models.HelicopterPayment, as: 'Payments' },
+                { model: models.HelicopterPassenger, as: 'Passengers' },
                 { model: models.HelicopterBookedSeat, as: 'BookedSeats' }
             ],
             transaction
@@ -411,14 +411,14 @@ const cancelBooking = async (req, res) => {
 
         // If there's a refund amount, update payment status
         if (refundAmount > 0 && booking.Payments && booking.Payments.length > 0) {
-            await models.Payment.update(
+            await models.HelicopterPayment.update(
                 {
                     payment_status: 'REFUND_PENDING',
                     refund_amount: refundAmount,
                     updated_at: new Date()
                 },
                 {
-                    where: { booking_id: booking.id },
+                    where: { helicopter_booking_id: booking.id },
                     transaction
                 }
             );
