@@ -409,19 +409,31 @@ const cancelBooking = async (req, res) => {
             transaction
         });
 
-        // If there's a refund amount, update payment status
-        if (refundAmount > 0 && booking.Payments && booking.Payments.length > 0) {
-            await models.HelicopterPayment.update(
-                {
-                    payment_status: 'REFUND_PENDING',
-                    refund_amount: refundAmount,
-                    updated_at: new Date()
-                },
-                {
+        // If there's a refund amount, update payment status (if payment exists)
+        if (refundAmount > 0) {
+            try {
+                const payment = await models.HelicopterPayment.findOne({
                     where: { helicopter_booking_id: booking.id },
                     transaction
+                });
+
+                if (payment) {
+                    await payment.update(
+                        {
+                            payment_status: 'REFUND_PENDING',
+                            refund_amount: refundAmount,
+                            updated_at: new Date()
+                        },
+                        { transaction }
+                    );
+                    console.log(`✅ Payment status updated to REFUND_PENDING for booking ${booking.id}`);
+                } else {
+                    console.log(`ℹ️ No payment record found for booking ${booking.id} - skipping payment update`);
                 }
-            );
+            } catch (paymentError) {
+                console.error('⚠️ Error updating payment status:', paymentError.message);
+                // Don't fail the cancellation if payment update fails
+            }
         }
 
         await transaction.commit();
