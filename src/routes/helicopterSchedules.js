@@ -1,14 +1,16 @@
 const router = require('express').Router();
 const ctrl = require('../controller/helicopterScheduleController');
+const { authenticate } = require('../middleware/auth');
+const { adminActivityLoggers } = require('../middleware/adminActivityLogger');
 
-// Specific routes MUST come before parameterized routes
+// Public routes (no authentication required)
 router.get('/schedule-by-helipad', ctrl.getScheduleBetweenHelipadDate);
 router.get('/price-by-da/:id', ctrl.getSchedulePriceByDay);
-
-// General CRUD routes
 router.get('/', ctrl.getHelicopterSchedules);
-router.post('/', ctrl.addHelicopterSchedule);
-router.put('/:id', ctrl.updateHelicopterSchedule);
-router.delete('/:id', ctrl.deleteHelicopterSchedule);
+
+// Admin routes (authentication required)
+router.post('/', authenticate([1]), adminActivityLoggers.createHelicopterSchedule, ctrl.addHelicopterSchedule);
+router.put('/:id', authenticate([1]), adminActivityLoggers.updateHelicopterSchedule, ctrl.updateHelicopterSchedule);
+router.delete('/:id', authenticate([1]), adminActivityLoggers.deleteHelicopterSchedule, ctrl.deleteHelicopterSchedule);
 
 module.exports = router;

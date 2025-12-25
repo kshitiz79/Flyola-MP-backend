@@ -1,23 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const flightController = require('./../controller/flightController');
+const { authenticate } = require('../middleware/auth');
+const { adminActivityLoggers } = require('../middleware/adminActivityLogger');
 
-// Get all flights
+// Public routes (no authentication required)
 router.get('/', flightController.getFlights);
 
-// Add a new flight
-router.post('/', flightController.addFlight);
+// Admin routes (authentication required)
+router.post('/', authenticate([1]), adminActivityLoggers.createFlight, flightController.addFlight);
+router.put('/:id', authenticate([1]), adminActivityLoggers.updateFlight, flightController.updateFlight);
+router.delete('/:id', authenticate([1]), adminActivityLoggers.deleteFlight, flightController.deleteFlight);
 
-// Update a flight
-router.put('/:id', flightController.updateFlight);
-
-// Delete a flight
-router.delete('/:id', flightController.deleteFlight);
-
-// Bulk operations
-router.put('/activate-all', flightController.activateAllFlights);
-router.put('/edit-all', flightController.editAllFlights);
-router.delete('/delete-all', flightController.deleteAllFlights);
+// Bulk operations (admin only)
+router.put('/activate-all', authenticate([1]), adminActivityLoggers.updateFlight, flightController.activateAllFlights);
+router.put('/edit-all', authenticate([1]), adminActivityLoggers.updateFlight, flightController.editAllFlights);
+router.delete('/delete-all', authenticate([1]), adminActivityLoggers.deleteFlight, flightController.deleteAllFlights);
 
 
 

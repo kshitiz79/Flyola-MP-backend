@@ -37,6 +37,7 @@ const models = {
   SystemLog: require('./systemLog'),
   UserActivityLog: require('./userActivityLog'),
   ErrorLog: require('./errorLog'),
+  AdminActivityLog: require('./adminActivityLog'),
   ApiRequestLog: require('./apiRequestLog'),
 
   sequelize,

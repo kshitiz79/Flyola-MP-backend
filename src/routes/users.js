@@ -6,6 +6,7 @@ const nodemailer = require('nodemailer');
 const models = require('../model');
 require('dotenv').config();
 const { authenticate } = require('../middleware/auth');
+const { adminActivityLoggers } = require('../middleware/adminActivityLogger');
 
 const { body, validationResult } = require('express-validator');
 const { buildCookieOptions } = require('../utils/cookie');
@@ -345,7 +346,7 @@ router.post('/register', async (req, res) => {
 });
 
 /** Register Admin **/
-router.post('/register-admin', async (req, res) => {
+router.post('/register-admin', authenticate([1]), adminActivityLoggers.createUser, async (req, res) => {
   const { name, email, password, number } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'Name, email, and password are required.' });
@@ -658,7 +659,7 @@ router.delete('/profile', authenticate(), async (req, res) => {
 });
 
 /** Delete User (Admin only) **/
-router.delete('/:id', authenticate([1]), async (req, res) => {
+router.delete('/:id', authenticate([1]), adminActivityLoggers.deleteUser, async (req, res) => {
   const userId = req.params.id;
 
   try {

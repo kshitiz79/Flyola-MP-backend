@@ -1,6 +1,8 @@
 const express = require('express');
 const models = require('../model');
 const { body, validationResult } = require('express-validator');
+const { authenticate } = require('../middleware/auth');
+const { adminActivityLoggers } = require('../middleware/adminActivityLogger');
 
 const router = express.Router();
 
@@ -36,7 +38,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new helicopter
-router.post('/', [
+router.post('/', authenticate([1]), adminActivityLoggers.createHelicopter, [
   body('helicopter_number').notEmpty().withMessage('Helicopter number is required'),
   body('departure_day').isIn(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']).withMessage('Valid departure day is required'),
   body('start_helipad_id').isInt({ min: 1 }).withMessage('Start helipad is required'),
@@ -112,7 +114,7 @@ router.post('/', [
 });
 
 // Update helicopter
-router.put('/:id', [
+router.put('/:id', authenticate([1]), adminActivityLoggers.updateHelicopter, [
   body('helicopter_number').optional().notEmpty().withMessage('Helicopter number cannot be empty'),
   body('departure_day').optional().isIn(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']).withMessage('Valid departure day is required'),
   body('start_helipad_id').optional().isInt({ min: 1 }).withMessage('Start helipad must be valid'),
@@ -185,7 +187,7 @@ router.put('/:id', [
 });
 
 // Delete helicopter
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticate([1]), adminActivityLoggers.deleteHelicopter, async (req, res) => {
   try {
     const helicopter = await models.Helicopter.findByPk(req.params.id);
     if (!helicopter) {

@@ -341,6 +341,109 @@ const logSystem = async (level, message, source, userId = null, details = {}) =>
     }
 };
 
+// Log admin activity function
+const logAdminActivity = async (activityData) => {
+    try {
+        // Validate required fields
+        if (!activityData.admin_user_id || !activityData.action || !activityData.description) {
+            console.error('Missing required fields for admin activity logging');
+            return false;
+        }
+
+        // Save to database
+        await models.AdminActivityLog.create(activityData);
+        
+        return true;
+    } catch (error) {
+        console.error('Error logging admin activity:', error);
+        return false;
+    }
+};
+
+// Get admin activities controller
+const getAdminActivities = async (req, res) => {
+    try {
+        const { 
+            page = 1, 
+            limit = 50, 
+            search = '', 
+            action = '', 
+            resource_type = '',
+            admin_user_id = '',
+            start_date = '', 
+            end_date = '' 
+        } = req.query;
+
+        // Build where conditions
+        const whereConditions = {};
+
+        if (search) {
+            whereConditions[Op.or] = [
+                { admin_email: { [Op.like]: `%${search}%` } },
+                { admin_name: { [Op.like]: `%${search}%` } },
+                { description: { [Op.like]: `%${search}%` } },
+                { action: { [Op.like]: `%${search}%` } }
+            ];
+        }
+
+        if (action) {
+            whereConditions.action = action;
+        }
+
+        if (resource_type) {
+            whereConditions.resource_type = resource_type;
+        }
+
+        if (admin_user_id) {
+            whereConditions.admin_user_id = admin_user_id;
+        }
+
+        if (start_date && end_date) {
+            whereConditions.timestamp = {
+                [Op.between]: [start_date, end_date]
+            };
+        } else if (start_date) {
+            whereConditions.timestamp = {
+                [Op.gte]: start_date
+            };
+        } else if (end_date) {
+            whereConditions.timestamp = {
+                [Op.lte]: end_date
+            };
+        }
+
+        // Get total count for pagination
+        const total = await models.AdminActivityLog.count({ where: whereConditions });
+
+        // Get paginated results
+        const offset = (page - 1) * limit;
+        const activities = await models.AdminActivityLog.findAll({
+            where: whereConditions,
+            order: [['timestamp', 'DESC']],
+            limit: parseInt(limit),
+            offset: offset
+        });
+
+        res.json({
+            success: true,
+            data: activities,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: total,
+                pages: Math.ceil(total / limit)
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching admin activities:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch admin activities'
+        });
+    }
+};
+
 // Mark error as resolved
 const markErrorResolved = async (req, res) => {
     try {
@@ -379,8 +482,10 @@ module.exports = {
     getSystemLogs,
     getUserActivity,
     getErrorLogs,
+    getAdminActivities,
     logActivity,
     logError,
     logSystem,
+    logAdminActivity,
     markErrorResolved
 };

@@ -1,10 +1,12 @@
 const express = require('express');
 const models = require('../model');
 const { body, validationResult } = require('express-validator');
+const { authenticate } = require('../middleware/auth');
+const { adminActivityLoggers } = require('../middleware/adminActivityLogger');
 
 const router = express.Router();
 
-// Get all helipads (from helipads table)
+// Public routes (no authentication required)
 router.get('/', async (req, res) => {
   try {
     const helipads = await models.Helipad.findAll({
@@ -20,7 +22,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get helipad by ID (from helipads table)
 router.get('/:id', async (req, res) => {
   try {
     const helipad = await models.Helipad.findByPk(req.params.id);
@@ -38,8 +39,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create new helipad (in helipads table)
-router.post('/', [
+// Admin routes (authentication required)
+router.post('/', authenticate([1]), adminActivityLoggers.createHelipad, [
   body('helipad_name').notEmpty().withMessage('Helipad name is required'),
   body('helipad_code').notEmpty().withMessage('Helipad code is required'),
   body('city').notEmpty().withMessage('City is required'),
@@ -77,8 +78,7 @@ router.post('/', [
   }
 });
 
-// Update helipad (in helipads table)
-router.put('/:id', [
+router.put('/:id', authenticate([1]), adminActivityLoggers.updateHelipad, [
   body('helipad_name').optional().notEmpty().withMessage('Helipad name cannot be empty'),
   body('helipad_code').optional().notEmpty().withMessage('Helipad code cannot be empty'),
   body('city').optional().notEmpty().withMessage('City cannot be empty'),
@@ -128,8 +128,7 @@ router.put('/:id', [
   }
 });
 
-// Delete helipad (from helipads table)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticate([1]), adminActivityLoggers.deleteHelipad, async (req, res) => {
   try {
     const helipad = await models.Helipad.findByPk(req.params.id);
     

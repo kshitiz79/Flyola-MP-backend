@@ -22,10 +22,7 @@ const authenticate = (roles = []) => {
       }
       req.user = decoded;
 
-      console.log('[Auth Middleware] User:', decoded.id, 'Role:', decoded.role, 'Required roles:', roles);
-
       if (roles.length && !roles.includes(Number(decoded.role))) {
-        console.log('[Auth Middleware] Permission denied - User role:', decoded.role, 'Required:', roles);
         return res.status(403).json({ error: 'Forbidden: Insufficient permissions' });
       }
 
