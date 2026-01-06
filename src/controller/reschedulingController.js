@@ -166,7 +166,10 @@ const getReschedulingDetails = async (req, res) => {
       if (bookingType === 'helicopter') {
         // For helicopters, check if they have a departure_day field or operate daily
         const helicopter = schedule.Helicopter;
-        if (!helicopter) return false;
+        if (!helicopter) {
+          console.warn(`Schedule ${schedule.id} has no Helicopter association, including it anyway`);
+          return true; // Include schedules without helicopter data
+        }
         // If helicopter has departure_day, check it; otherwise assume it operates daily
         if (helicopter.departure_day) {
           return helicopter.departure_day === selectedWeekday;
@@ -175,11 +178,21 @@ const getReschedulingDetails = async (req, res) => {
       } else {
         // For flights, check the Flight's departure_day
         const flight = schedule.Flight;
-        if (!flight) return false;
         
         // Handle one-time special flights
         if (schedule.is_one_time === 1) {
           return schedule.specific_date === selectedDate;
+        }
+        
+        if (!flight) {
+          console.warn(`Schedule ${schedule.id} has no Flight association, including it anyway`);
+          return true; // Include schedules without flight data
+        }
+        
+        // If no departure_day, assume it operates daily
+        if (!flight.departure_day) {
+          console.warn(`Schedule ${schedule.id} Flight has no departure_day, assuming daily operation`);
+          return true;
         }
         
         // Regular recurring flights - check weekday
@@ -201,7 +214,7 @@ const getReschedulingDetails = async (req, res) => {
               bookDate: selectedDate
             }
           });
-          totalSeats = schedule.Helicopter?.seat_limit || schedule.available_seats || 0;
+          totalSeats = schedule.Helicopter?.seat_limit || 6; // Default to 6 if not specified
           actualAvailableSeats = Math.max(0, totalSeats - bookedSeatsCount);
         } else {
           // For flights, use the proper seatUtils that handles overlapping segments
@@ -210,7 +223,23 @@ const getReschedulingDetails = async (req, res) => {
             schedule_id: schedule.id,
             bookDate: selectedDate
           });
+          
+          // Get total seats from Flight or use a default
           totalSeats = schedule.Flight?.seat_limit || 0;
+          
+          // If totalSeats is 0 and we have availableSeats from sumSeats, use that as total
+          if (totalSeats === 0 && actualAvailableSeats > 0) {
+            totalSeats = actualAvailableSeats;
+            console.warn(`Schedule ${schedule.id}: Flight.seat_limit is 0, using sumSeats result (${actualAvailableSeats}) as total`);
+          }
+          
+          // If both are 0, use default
+          if (totalSeats === 0) {
+            totalSeats = 6; // Default to 6
+            actualAvailableSeats = totalSeats; // Assume all available if no bookings
+            console.warn(`Schedule ${schedule.id}: Using fallback seat count (${totalSeats})`);
+          }
+          
           bookedSeatsCount = totalSeats - actualAvailableSeats;
         }
 
