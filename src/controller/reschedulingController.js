@@ -16,7 +16,7 @@ dayjs.extend(timezone);
  */
 const getReschedulingDetails = async (req, res) => {
   try {
-    const { bookingId } = req.params;
+    const { bookingId } = req.params; // This is actually PNR now
     const { bookingType, date } = req.query; // 'flight' or 'helicopter', and optional date
 
     let booking;
@@ -29,7 +29,8 @@ const getReschedulingDetails = async (req, res) => {
       scheduleModel = models.HelicopterSchedule;
       bookedSeatModel = models.HelicopterBookedSeat;
       
-      booking = await bookingModel.findByPk(bookingId, {
+      booking = await bookingModel.findOne({
+        where: { pnr: bookingId },
         include: [
           { 
             model: models.HelicopterSchedule,
@@ -47,7 +48,8 @@ const getReschedulingDetails = async (req, res) => {
       scheduleModel = models.FlightSchedule;
       bookedSeatModel = models.BookedSeat;
       
-      booking = await bookingModel.findByPk(bookingId, {
+      booking = await bookingModel.findOne({
+        where: { pnr: bookingId },
         include: [
           { 
             model: models.FlightSchedule,
@@ -63,7 +65,7 @@ const getReschedulingDetails = async (req, res) => {
     }
 
     if (!booking) {
-      return res.status(404).json({ error: 'Booking not found' });
+      return res.status(404).json({ error: 'Booking not found with this PNR' });
     }
 
     // Check if booking can be rescheduled
@@ -943,7 +945,7 @@ const verifyReschedulingPayment = async (req, res) => {
  * Admin can reschedule any booking without payment gateway
  */
 const adminRescheduleBooking = async (req, res) => {
-  const { bookingId } = req.params;
+  const { bookingId } = req.params; // This is actually PNR now
   const { bookingType, newScheduleId, newBookDate, newSeatLabels, waiveFee } = req.body;
 
   let t;
@@ -954,7 +956,8 @@ const adminRescheduleBooking = async (req, res) => {
     let booking, newSchedule, bookedSeatModel, scheduleIdField, bookingIdField;
 
     if (bookingType === 'helicopter') {
-      booking = await models.HelicopterBooking.findByPk(bookingId, {
+      booking = await models.HelicopterBooking.findOne({
+        where: { pnr: bookingId },
         include: [{ model: models.HelicopterSchedule }],
         transaction: t
       });
@@ -963,7 +966,8 @@ const adminRescheduleBooking = async (req, res) => {
       scheduleIdField = 'helicopter_schedule_id';
       bookingIdField = 'helicopter_booking_id';
     } else {
-      booking = await models.Booking.findByPk(bookingId, {
+      booking = await models.Booking.findOne({
+        where: { pnr: bookingId },
         include: [{ model: models.FlightSchedule }],
         transaction: t
       });
@@ -975,7 +979,7 @@ const adminRescheduleBooking = async (req, res) => {
 
     if (!booking) {
       await t.rollback();
-      return res.status(404).json({ error: 'Booking not found' });
+      return res.status(404).json({ error: 'Booking not found with this PNR' });
     }
 
     if (!newSchedule) {

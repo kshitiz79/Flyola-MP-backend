@@ -47,6 +47,10 @@ const Payment = sequelize.define(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    refund_amount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+    },
     created_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
