@@ -14,13 +14,22 @@ const getRoute = (flight) => {
 async function getFlightSchedules(req, res) {
   const models = getModels();
   const isUserRequest = req.query.user === 'true';
+  const isAdminRequest = req.query.admin === 'true';
   const monthQuery = req.query.month;
   const startDateParam = req.query.start_date; // Support mobile app parameter
   try {
     const where = isUserRequest ? { status: 1 } : {};
+    
+    // For public/user requests, only show schedules with existing flights
+    // For admin requests, show all schedules (including those with deleted flights)
+    const includeOptions = {
+      model: models.Flight,
+      required: isUserRequest ? true : false // Public users only see schedules with valid flights
+    };
+    
     const rows = await models.FlightSchedule.findAll({
       where,
-      include: [{ model: models.Flight }],
+      include: [includeOptions],
     });
 
     let output = [];
@@ -66,6 +75,11 @@ async function getFlightSchedules(req, res) {
         for (const schedule of rows) {
           const flight = schedule.Flight;
           
+          // Skip if flight is missing (shouldn't happen with required: true, but safety check)
+          if (!flight) {
+            continue;
+          }
+          
           // Handle one-time flights
           if (schedule.is_one_time === 1) {
             // Only include if specific_date matches current date
@@ -74,7 +88,7 @@ async function getFlightSchedules(req, res) {
             }
           } else {
             // Regular recurring schedule - check weekday
-            if (!flight || flight.departure_day !== weekday) continue;
+            if (flight.departure_day !== weekday) continue;
             
             // Check for exception on this date
             const exception = exceptions.find(
@@ -155,6 +169,11 @@ async function getFlightSchedules(req, res) {
         rows.map(async (schedule) => {
           const flight = schedule.Flight;
           
+          // Skip if flight is missing (shouldn't happen with required: true, but safety check)
+          if (!flight) {
+            return null;
+          }
+          
           // Handle one-time flights
           if (schedule.is_one_time === 1) {
             if (schedule.specific_date !== bookDate) {
@@ -162,13 +181,9 @@ async function getFlightSchedules(req, res) {
             }
           } else {
             // Regular recurring schedule
-            if (!flight || flight.departure_day !== weekday) {
+            if (flight.departure_day !== weekday) {
               return null;
             }
-          }
-          
-          if (!flight) {
-            return null;
           }
 
           let viaStopIds = [];
