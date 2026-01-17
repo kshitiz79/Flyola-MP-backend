@@ -153,8 +153,27 @@ exports.addFlight = async (req, res) => {
 
 exports.updateFlight = async (req, res) => {
   try {
-    const flight = await getModels().Flight.findByPk(req.params.id);
+    const models = getModels();
+    const flight = await models.Flight.findByPk(req.params.id);
     if (!flight) return res.status(404).json({ error: 'Flight not found' });
+
+    // If trying to deactivate flight (status: 0), check for active schedules
+    if (req.body.status === 0 || req.body.status === '0') {
+      const activeSchedules = await models.FlightSchedule.count({
+        where: { 
+          flight_id: req.params.id,
+          status: 1 
+        }
+      });
+
+      if (activeSchedules > 0) {
+        return res.status(400).json({ 
+          error: `Cannot deactivate flight. It has ${activeSchedules} active schedule(s). Please deactivate all schedules first.`,
+          activeSchedules,
+          suggestion: 'Go to Schedule Management and deactivate all schedules for this flight first.'
+        });
+      }
+    }
 
     const validatedBody = await validateFlightBody(req.body, true, flight.id);
     await flight.update({ ...validatedBody, airport_stop_ids: validatedBody.airport_stop_ids });
@@ -166,10 +185,45 @@ exports.updateFlight = async (req, res) => {
 
 exports.deleteFlight = async (req, res) => {
   try {
-    const flight = await getModels().Flight.findByPk(req.params.id);
+    const models = getModels();
+    const flight = await models.Flight.findByPk(req.params.id);
     if (!flight) return res.status(404).json({ error: 'Flight not found' });
+
+    // Check if flight has active schedules
+    const activeSchedules = await models.FlightSchedule.count({
+      where: { 
+        flight_id: req.params.id,
+        status: 1 
+      }
+    });
+
+    if (activeSchedules > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete flight. It has ${activeSchedules} active schedule(s). Please deactivate all schedules first.`,
+        activeSchedules 
+      });
+    }
+
+    // Check if flight has any bookings through schedules
+    const bookingsCount = await models.sequelize.query(`
+      SELECT COUNT(*) as count 
+      FROM bookings b 
+      JOIN flight_schedules fs ON b.schedule_id = fs.id 
+      WHERE fs.flight_id = :flightId
+    `, {
+      replacements: { flightId: req.params.id },
+      type: models.sequelize.QueryTypes.SELECT
+    });
+
+    if (bookingsCount[0].count > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete flight. It has ${bookingsCount[0].count} booking(s). Flights with bookings cannot be deleted.`,
+        bookingsCount: bookingsCount[0].count
+      });
+    }
+
     await flight.destroy();
-    res.json({ message: 'Flight deleted' });
+    res.json({ message: 'Flight deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

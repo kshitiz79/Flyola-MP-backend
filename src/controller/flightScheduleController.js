@@ -18,13 +18,15 @@ async function getFlightSchedules(req, res) {
   const monthQuery = req.query.month;
   const startDateParam = req.query.start_date; // Support mobile app parameter
   try {
+    // For user requests, add extra validation to prevent "Unknown" flights
     const where = isUserRequest ? { status: 1 } : {};
     
-    // For public/user requests, only show schedules with existing flights
+    // For public/user requests, only show schedules with existing AND active flights
     // For admin requests, show all schedules (including those with deleted flights)
     const includeOptions = {
       model: models.Flight,
-      required: isUserRequest ? true : false // Public users only see schedules with valid flights
+      required: isUserRequest ? true : false, // Public users only see schedules with valid flights
+      where: isUserRequest ? { status: 1 } : {} // Public users only see active flights
     };
     
     const rows = await models.FlightSchedule.findAll({
@@ -355,11 +357,41 @@ async function deleteFlightSchedule(req, res) {
   const models = getModels();
   try {
     const schedule = await models.FlightSchedule.findByPk(req.params.id);
-    if (!schedule) return res.status(404).json({ error: 'Not found' });
+    if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+
+    // Check if schedule has any bookings
+    const bookingsCount = await models.Booking.count({
+      where: { schedule_id: req.params.id }
+    });
+
+    if (bookingsCount > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete schedule. It has ${bookingsCount} booking(s). Schedules with bookings cannot be deleted.`,
+        bookingsCount,
+        suggestion: 'You can deactivate the schedule instead of deleting it.'
+      });
+    }
+
+    // Check if schedule has any seat holds
+    const seatHoldsCount = await models.SeatHold.count({
+      where: { schedule_id: req.params.id }
+    });
+
+    if (seatHoldsCount > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete schedule. It has ${seatHoldsCount} active seat hold(s). Please wait for holds to expire or release them first.`,
+        seatHoldsCount
+      });
+    }
+
     await schedule.destroy();
-    res.json({ message: 'Deleted' });
+    res.json({ message: 'Schedule deleted successfully' });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to delete' });
+    console.error('Error deleting schedule:', err);
+    res.status(500).json({ 
+      error: 'Failed to delete schedule', 
+      details: err.message 
+    });
   }
 }
 

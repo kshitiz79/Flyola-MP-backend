@@ -37,10 +37,20 @@ async function getHelicopterSchedules(req, res) {
   const monthQuery = req.query.month;
   
   try {
+    // For user requests, add extra validation to prevent "Unknown" helicopters
     const where = isUserRequest ? { status: 1 } : {};
+    
+    // For public/user requests, only show schedules with existing AND active helicopters
+    const includeOptions = {
+      model: models.Helicopter, 
+      as: 'Helicopter',
+      required: isUserRequest ? true : false, // Public users only see schedules with valid helicopters
+      where: isUserRequest ? { status: 1 } : {} // Public users only see active helicopters
+    };
+    
     const rows = await models.HelicopterSchedule.findAll({
       where,
-      include: [{ model: models.Helicopter, as: 'Helicopter' }],
+      include: [includeOptions],
     });
 
     let output = [];
@@ -230,11 +240,41 @@ async function deleteHelicopterSchedule(req, res) {
   const models = getModels();
   try {
     const schedule = await models.HelicopterSchedule.findByPk(req.params.id);
-    if (!schedule) return res.status(404).json({ error: 'Not found' });
+    if (!schedule) return res.status(404).json({ error: 'Helicopter schedule not found' });
+
+    // Check if schedule has any bookings
+    const bookingsCount = await models.HelicopterBooking.count({
+      where: { helicopter_schedule_id: req.params.id }
+    });
+
+    if (bookingsCount > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete helicopter schedule. It has ${bookingsCount} booking(s). Schedules with bookings cannot be deleted.`,
+        bookingsCount,
+        suggestion: 'You can deactivate the schedule instead of deleting it.'
+      });
+    }
+
+    // Check if schedule has any seat holds
+    const seatHoldsCount = await models.HelicopterSeatHold.count({
+      where: { schedule_id: req.params.id }
+    });
+
+    if (seatHoldsCount > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete helicopter schedule. It has ${seatHoldsCount} active seat hold(s). Please wait for holds to expire or release them first.`,
+        seatHoldsCount
+      });
+    }
+
     await schedule.destroy();
-    res.json({ message: 'Deleted' });
+    res.json({ message: 'Helicopter schedule deleted successfully' });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to delete' });
+    console.error('Error deleting helicopter schedule:', err);
+    res.status(500).json({ 
+      error: 'Failed to delete helicopter schedule', 
+      details: err.message 
+    });
   }
 }
 
