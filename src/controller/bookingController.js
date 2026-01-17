@@ -2942,7 +2942,7 @@ async function rescheduleIrctcBooking(req, res) {
 // General booking rescheduling function (works for any agent)
 async function rescheduleBooking(req, res) {
   const { id } = req.params;
-  const { newScheduleId, newBookDate, newSeatLabels } = req.body;
+  const { newScheduleId, newBookDate, newSeatLabels, agentId } = req.body; // Accept agentId from request body
   let t;
 
   try {
@@ -2979,6 +2979,17 @@ async function rescheduleBooking(req, res) {
       return res.status(404).json({ error: "Booking not found" });
     }
 
+    // Verify that the agentId in the request matches the booking's agent
+    if (agentId && booking.agentId) {
+      if (agentId !== booking.agentId.toString()) {
+        await t.rollback();
+        return res.status(403).json({ error: "Unauthorized: Agent ID does not match booking's agent" });
+      }
+    } else if (agentId && !booking.agentId) {
+      await t.rollback();
+      return res.status(403).json({ error: "Unauthorized: Booking does not belong to specified agent" });
+    }
+    
     if (
       booking.bookingStatus !== "SUCCESS" &&
       booking.bookingStatus !== "CONFIRMED"
