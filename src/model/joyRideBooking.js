@@ -15,14 +15,6 @@ const JoyRideBooking = sequelize.define('JoyRideBooking', {
       key: 'id',
     },
   },
-  slot_id: {
-    type: DataTypes.BIGINT.UNSIGNED,
-    allowNull: false,
-    references: {
-      model: 'joy_ride_slots',
-      key: 'id',
-    },
-  },
   email: {
     type: DataTypes.STRING(255),
     allowNull: false,
@@ -66,10 +58,6 @@ const JoyRideBooking = sequelize.define('JoyRideBooking', {
 
 // Define relationships
 JoyRideBooking.associate = (models) => {
-  JoyRideBooking.belongsTo(models.Joy_Ride_Slot, {
-    foreignKey: 'slot_id',
-    as: 'slot',
-  });
   JoyRideBooking.belongsTo(models.User, {
     foreignKey: 'user_id',
     as: 'user',
