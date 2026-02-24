@@ -30,6 +30,12 @@ const BookedSeat = sequelize.define(
       allowNull: false,
       defaultValue: 1,
     },
+    status: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: 'CONFIRMED',
+      comment: 'HOLD, CONFIRMED, or RELEASED',
+    },
     created_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,

@@ -39,7 +39,7 @@ const HelicopterPayment = sequelize.define(
     },
     user_id: {
       type: DataTypes.BIGINT.UNSIGNED,
-      allowNull: false,
+      allowNull: true, // Allow NULL for guest bookings
     },
     refund_id: {
       type: DataTypes.STRING,

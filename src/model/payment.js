@@ -15,7 +15,7 @@ const Payment = sequelize.define(
     },
     payment_id: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true, // Allow NULL for pending payments
       unique: true,
     },
     payment_status: {
@@ -40,8 +40,8 @@ const Payment = sequelize.define(
       allowNull: false,
     },
     user_id: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
+      type: DataTypes.BIGINT.UNSIGNED,
+      allowNull: true, // Allow NULL for guest bookings
     },
     refund_id: {
       type: DataTypes.STRING,

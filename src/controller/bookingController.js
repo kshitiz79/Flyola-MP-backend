@@ -1773,9 +1773,22 @@ async function getUserBookings(req, res) {
 
   const userId = req.user.id;
   try {
-    // Fetch flight bookings from bookings table
+    // Get user's email
+    const user = await models.User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    const userEmail = user.email;
+
+    // Fetch flight bookings - both by userId AND by email (for guest bookings)
     const flightBookings = await models.Booking.findAll({
-      where: { bookedUserId: userId },
+      where: {
+        [models.Sequelize.Op.or]: [
+          { bookedUserId: userId }, // Logged-in bookings
+          { guest_email: userEmail, guest_booking: true }, // Guest bookings with same email
+          { email_id: userEmail, bookedUserId: null }, // Old bookings with email but no userId
+        ],
+      },
       include: [
         {
           model: models.FlightSchedule,
@@ -1794,9 +1807,15 @@ async function getUserBookings(req, res) {
       order: [["bookDate", "DESC"]],
     });
 
-    // Fetch helicopter bookings from helicopter_bookings table
+    // Fetch helicopter bookings - both by userId AND by email
     const helicopterBookings = await models.HelicopterBooking.findAll({
-      where: { bookedUserId: userId },
+      where: {
+        [models.Sequelize.Op.or]: [
+          { bookedUserId: userId }, // Logged-in bookings
+          { guest_email: userEmail, guest_booking: true }, // Guest bookings with same email
+          { email_id: userEmail, bookedUserId: null }, // Old bookings with email but no userId
+        ],
+      },
       include: [
         {
           model: models.HelicopterSchedule,
@@ -1829,9 +1848,14 @@ async function getUserBookings(req, res) {
     // Process flight bookings
     const flightBookingsWithExtras = await Promise.all(
       flightBookings.map(async (b) => {
-        const billing = await models.Billing.findOne({
-          where: { user_id: b.bookedUserId },
-        });
+        // For guest bookings, bookedUserId is NULL, so we can't fetch billing by user_id
+        // For logged-in bookings, fetch billing by user_id
+        let billing = null;
+        if (b.bookedUserId) {
+          billing = await models.Billing.findOne({
+            where: { user_id: b.bookedUserId },
+          });
+        }
 
         return {
           ...b.toJSON(),
@@ -1848,9 +1872,13 @@ async function getUserBookings(req, res) {
     // Process helicopter bookings
     const helicopterBookingsWithExtras = await Promise.all(
       helicopterBookings.map(async (b) => {
-        const billing = await models.Billing.findOne({
-          where: { user_id: b.bookedUserId },
-        });
+        // For guest bookings, bookedUserId is NULL, so we can't fetch billing by user_id
+        let billing = null;
+        if (b.bookedUserId) {
+          billing = await models.Billing.findOne({
+            where: { user_id: b.bookedUserId },
+          });
+        }
 
         // Fetch helipad data separately to avoid association conflicts
         let departureHelipad = null;
@@ -3711,6 +3739,623 @@ async function getBookingStatsMultiple(req, res) {
   }
 }
 
+// ============================================
+// NEW FUNCTIONS FOR BOOKING-FIRST FLOW
+// ============================================
+
+/**
+ * Create a pending booking without payment (guest or logged-in user)
+ * No authentication required
+ */
+async function createPendingBooking(req, res) {
+  const { bookedSeat, booking, billing, passengers } = req.body;
+
+  console.log('[createPendingBooking] Request received:', {
+    guestBooking: booking?.guestBooking,
+    email: booking?.email_id,
+    scheduleId: bookedSeat?.schedule_id
+  });
+
+  // Input validation
+  if (
+    !bookedSeat ||
+    !booking ||
+    !billing ||
+    !Array.isArray(passengers) ||
+    !passengers.length
+  ) {
+    return res.status(400).json({
+      error: "Missing required booking sections: bookedSeat, booking, billing, or passengers",
+    });
+  }
+
+  if (!dayjs(bookedSeat.bookDate, "YYYY-MM-DD", true).isValid()) {
+    return res.status(400).json({ error: "Invalid bookDate format (YYYY-MM-DD)" });
+  }
+
+  if (
+    !bookedSeat.seat_labels ||
+    !Array.isArray(bookedSeat.seat_labels) ||
+    bookedSeat.seat_labels.length !== passengers.length
+  ) {
+    return res.status(400).json({
+      error: "seat_labels must be an array matching the number of passengers",
+    });
+  }
+
+  // Validate booking fields
+  const bookingRequiredFields = [
+    "contact_no",
+    "email_id",
+    "noOfPassengers",
+    "bookDate",
+    "totalFare",
+    "schedule_id",
+  ];
+  const missingBookingFields = bookingRequiredFields.filter(
+    (f) => !booking[f] && booking[f] !== 0
+  );
+  if (missingBookingFields.length) {
+    return res.status(400).json({
+      error: `Missing booking fields: ${missingBookingFields.join(", ")}`,
+    });
+  }
+
+  const totalFare = parseFloat(booking.totalFare);
+  if (!Number.isFinite(totalFare) || totalFare <= 0) {
+    return res.status(400).json({ error: "Total fare must be a positive number" });
+  }
+
+  let transaction;
+  try {
+    transaction = await models.sequelize.transaction();
+
+    // Generate PNR and booking number
+    const pnr = await generatePNR();
+    const bookingNo = `BOOK${Date.now()}`;
+
+    // Determine if this is a guest booking
+    const isGuest = booking.guestBooking === true;
+    let userId = null;
+
+    if (!isGuest) {
+      // Validate logged-in user
+      userId = booking.bookedUserId;
+      if (!userId) {
+        throw new Error("bookedUserId required for logged-in user bookings");
+      }
+      const user = await models.User.findByPk(userId);
+      if (!user) {
+        throw new Error(`Invalid bookedUserId: ${userId}`);
+      }
+      console.log('[createPendingBooking] Logged-in user booking, user ID:', userId);
+    } else {
+      // Guest booking - no userId needed, will use guest_email and guest_phone
+      console.log('[createPendingBooking] Guest booking, no user ID required');
+    }
+
+    // Check if this is a helicopter or flight schedule
+    let isHelicopterBooking = false;
+    let helicopterSchedule = null;
+
+    helicopterSchedule = await models.HelicopterSchedule.findByPk(
+      bookedSeat.schedule_id,
+      { transaction }
+    );
+    if (helicopterSchedule) {
+      isHelicopterBooking = true;
+    }
+
+    // Verify seat availability
+    let availableSeats;
+    if (isHelicopterBooking) {
+      const { getAvailableHelicopterSeats } = require("../utils/helicopterSeatUtils");
+      availableSeats = await getAvailableHelicopterSeats({
+        models,
+        schedule_id: bookedSeat.schedule_id,
+        bookDate: bookedSeat.bookDate,
+        transaction,
+      });
+    } else {
+      availableSeats = await getAvailableSeats({
+        models,
+        schedule_id: bookedSeat.schedule_id,
+        bookDate: bookedSeat.bookDate,
+        transaction,
+      });
+    }
+
+    // Check seat availability
+    for (const seat of bookedSeat.seat_labels) {
+      if (!availableSeats.includes(seat)) {
+        throw new Error(`Seat ${seat} is not available`);
+      }
+    }
+
+    // Set booking expiry (15 minutes from now)
+    const expiryTime = new Date(Date.now() + 15 * 60 * 1000);
+
+    let newBooking;
+
+    if (isHelicopterBooking) {
+      // Create helicopter booking
+      newBooking = await models.HelicopterBooking.create(
+        {
+          pnr,
+          bookingNo,
+          contact_no: booking.contact_no,
+          email_id: booking.email_id,
+          noOfPassengers: booking.noOfPassengers,
+          bookDate: booking.bookDate,
+          helicopter_schedule_id: bookedSeat.schedule_id,
+          totalFare: booking.totalFare,
+          paymentStatus: "PENDING",
+          bookingStatus: "PENDING",
+          bookedUserId: userId,
+          guest_booking: isGuest,
+          guest_email: isGuest ? booking.email_id : null,
+          guest_phone: isGuest ? booking.contact_no : null,
+          booking_expires_at: expiryTime,
+          agentId: booking.agentId || null,
+        },
+        { transaction }
+      );
+
+      // Create helicopter booked seats with HOLD status
+      for (const seat of bookedSeat.seat_labels) {
+        await models.HelicopterBookedSeat.create(
+          {
+            helicopter_booking_id: newBooking.id,
+            helicopter_schedule_id: bookedSeat.schedule_id,
+            bookDate: bookedSeat.bookDate,
+            seat_label: seat,
+            booked_seat: 1,
+            status: "HOLD",
+          },
+          { transaction }
+        );
+      }
+
+      // Create helicopter passengers
+      await models.HelicopterPassenger.bulkCreate(
+        passengers.map((p) => ({
+          helicopter_bookingId: newBooking.id,
+          title: p.title,
+          name: p.name,
+          dob: p.dob || null,
+          age: p.age,
+          weight: p.weight || null,
+          type: p.type,
+        })),
+        { transaction }
+      );
+
+      // Create helicopter payment record with PENDING status
+      await models.HelicopterPayment.create(
+        {
+          transaction_id: `TXN_PENDING_${Date.now()}`,
+          payment_id: null,
+          payment_status: "PENDING",
+          payment_mode: "RAZORPAY",
+          payment_amount: booking.totalFare,
+          message: "Awaiting payment",
+          helicopter_booking_id: newBooking.id,
+          user_id: userId,
+        },
+        { transaction }
+      );
+
+      // Create billing record
+      await models.Billing.create(
+        {
+          ...billing,
+          booking_id: newBooking.id,
+          user_id: userId,
+        },
+        { transaction }
+      );
+    } else {
+      // Create flight booking
+      newBooking = await models.Booking.create(
+        {
+          pnr,
+          bookingNo,
+          contact_no: booking.contact_no,
+          email_id: booking.email_id,
+          noOfPassengers: booking.noOfPassengers,
+          bookDate: booking.bookDate,
+          schedule_id: bookedSeat.schedule_id,
+          totalFare: booking.totalFare,
+          paymentStatus: "PENDING",
+          bookingStatus: "PENDING",
+          bookedUserId: userId,
+          guest_booking: isGuest,
+          guest_email: isGuest ? booking.email_id : null,
+          guest_phone: isGuest ? booking.contact_no : null,
+          booking_expires_at: expiryTime,
+          agentId: booking.agentId || null,
+        },
+        { transaction }
+      );
+
+      // Create booked seats with HOLD status
+      for (const seat of bookedSeat.seat_labels) {
+        await models.BookedSeat.create(
+          {
+            booking_id: newBooking.id,
+            schedule_id: bookedSeat.schedule_id,
+            bookDate: bookedSeat.bookDate,
+            seat_label: seat,
+            booked_seat: 1,
+            status: "HOLD",
+          },
+          { transaction }
+        );
+      }
+
+      // Create passengers
+      await models.Passenger.bulkCreate(
+        passengers.map((p) => ({
+          bookingId: newBooking.id,
+          title: p.title,
+          name: p.name,
+          dob: p.dob || null,
+          age: p.age,
+          weight: p.weight || null,
+          type: p.type,
+        })),
+        { transaction }
+      );
+
+      // Create payment record with PENDING status
+      await models.Payment.create(
+        {
+          transaction_id: `TXN_PENDING_${Date.now()}`,
+          payment_id: null,
+          payment_status: "PENDING",
+          payment_mode: "RAZORPAY",
+          payment_amount: booking.totalFare,
+          message: "Awaiting payment",
+          booking_id: newBooking.id,
+          user_id: userId,
+        },
+        { transaction }
+      );
+
+      // Create billing record
+      await models.Billing.create(
+        {
+          ...billing,
+          booking_id: newBooking.id,
+          user_id: userId,
+        },
+        { transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    console.log('[createPendingBooking] Booking created successfully:', {
+      bookingId: newBooking.id,
+      pnr,
+      isGuest,
+      isHelicopter: isHelicopterBooking,
+      expiresAt: expiryTime
+    });
+
+    return res.status(201).json({
+      success: true,
+      booking: {
+        id: newBooking.id,
+        pnr,
+        bookingNo,
+        status: "PENDING",
+        expiresAt: expiryTime,
+        isGuest: isGuest,
+        bookingType: isHelicopterBooking ? "helicopter" : "flight",
+      },
+      payment: {
+        required: true,
+        amount: parseFloat(booking.totalFare),
+        currency: "INR",
+      },
+      message: "Booking created successfully. Please complete payment within 15 minutes.",
+    });
+  } catch (error) {
+    if (transaction) await transaction.rollback();
+    console.error("[createPendingBooking] Error:", error);
+    return res.status(500).json({
+      error: error.message || "Failed to create booking",
+    });
+  }
+}
+
+/**
+ * Complete booking after successful payment
+ * No authentication required (uses bookingId from payment)
+ */
+async function completeBookingAfterPayment(req, res) {
+  const { bookingId, payment_id, order_id, razorpay_signature, bookingType } = req.body;
+
+  console.log('[completeBookingAfterPayment] Request received:', {
+    bookingId,
+    payment_id,
+    bookingType: bookingType || 'auto-detect'
+  });
+
+  if (!bookingId || !payment_id || !order_id || !razorpay_signature) {
+    return res.status(400).json({
+      error: "Missing required fields: bookingId, payment_id, order_id, razorpay_signature",
+    });
+  }
+
+  let transaction;
+  try {
+    transaction = await models.sequelize.transaction();
+
+    // Try to find booking in both tables
+    let booking;
+    let isHelicopterBooking = false;
+
+    if (bookingType === 'helicopter') {
+      booking = await models.HelicopterBooking.findByPk(bookingId, { transaction });
+      isHelicopterBooking = true;
+    } else if (bookingType === 'flight') {
+      booking = await models.Booking.findByPk(bookingId, { transaction });
+      isHelicopterBooking = false;
+    } else {
+      // Auto-detect
+      booking = await models.Booking.findByPk(bookingId, { transaction });
+      if (!booking) {
+        booking = await models.HelicopterBooking.findByPk(bookingId, { transaction });
+        isHelicopterBooking = true;
+      }
+    }
+
+    if (!booking) {
+      throw new Error("Booking not found");
+    }
+
+    // Check if booking expired
+    if (booking.booking_expires_at && new Date() > new Date(booking.booking_expires_at)) {
+      throw new Error("Booking expired. Please create a new booking.");
+    }
+
+    // Check if already completed (idempotency)
+    if (booking.paymentStatus === "SUCCESS") {
+      console.log('[completeBookingAfterPayment] Booking already completed (idempotency)');
+      return res.status(200).json({
+        success: true,
+        message: "Booking already completed",
+        booking: {
+          id: booking.id,
+          pnr: booking.pnr,
+          bookingNo: booking.bookingNo,
+          status: "CONFIRMED",
+          paymentStatus: "SUCCESS",
+          bookingType: isHelicopterBooking ? "helicopter" : "flight",
+        },
+      });
+    }
+
+    // Verify Razorpay payment
+    const isValidSignature = await verifyPayment({
+      order_id,
+      payment_id,
+      signature: razorpay_signature,
+    });
+
+    if (!isValidSignature) {
+      throw new Error("Invalid payment signature");
+    }
+
+    // Update booking status
+    await booking.update(
+      {
+        paymentStatus: "SUCCESS",
+        bookingStatus: "CONFIRMED",
+        booking_expires_at: null, // Remove expiry
+      },
+      { transaction }
+    );
+
+    // Update seats from HOLD to CONFIRMED
+    if (isHelicopterBooking) {
+      await models.HelicopterBookedSeat.update(
+        { status: "CONFIRMED" },
+        {
+          where: { helicopter_booking_id: bookingId },
+          transaction,
+        }
+      );
+
+      // Update payment record
+      await models.HelicopterPayment.update(
+        {
+          payment_id,
+          order_id,
+          razorpay_signature,
+          payment_status: "SUCCESS",
+          message: "Payment successful",
+          transaction_id: payment_id,
+        },
+        {
+          where: { helicopter_booking_id: bookingId },
+          transaction,
+        }
+      );
+    } else {
+      await models.BookedSeat.update(
+        { status: "CONFIRMED" },
+        {
+          where: { booking_id: bookingId },
+          transaction,
+        }
+      );
+
+      // Update payment record
+      await models.Payment.update(
+        {
+          payment_id,
+          order_id,
+          razorpay_signature,
+          payment_status: "SUCCESS",
+          message: "Payment successful",
+          transaction_id: payment_id,
+        },
+        {
+          where: { booking_id: bookingId },
+          transaction,
+        }
+      );
+    }
+
+    await transaction.commit();
+
+    console.log('[completeBookingAfterPayment] Booking completed successfully:', {
+      bookingId,
+      pnr: booking.pnr,
+      isHelicopter: isHelicopterBooking
+    });
+
+    // Send confirmation email (async, don't wait)
+    try {
+      await sendBookingConfirmationEmail({
+        email: booking.email_id,
+        pnr: booking.pnr,
+        bookingNo: booking.bookingNo,
+        bookDate: booking.bookDate,
+        totalFare: booking.totalFare,
+        noOfPassengers: booking.noOfPassengers,
+      });
+    } catch (emailError) {
+      console.error("[completeBookingAfterPayment] Email send failed:", emailError);
+      // Don't fail the booking if email fails
+    }
+
+    return res.status(200).json({
+      success: true,
+      booking: {
+        id: booking.id,
+        pnr: booking.pnr,
+        bookingNo: booking.bookingNo,
+        status: "CONFIRMED",
+        paymentStatus: "SUCCESS",
+        bookingType: isHelicopterBooking ? "helicopter" : "flight",
+      },
+      message: "Booking confirmed successfully",
+    });
+  } catch (error) {
+    if (transaction) await transaction.rollback();
+    console.error("[completeBookingAfterPayment] Error:", error);
+    return res.status(500).json({
+      error: error.message || "Failed to complete booking",
+    });
+  }
+}
+
+/**
+ * Cancel a pending booking (payment failed or user cancelled)
+ * No authentication required
+ */
+async function cancelPendingBooking(req, res) {
+  const { bookingId } = req.params;
+  const { bookingType } = req.body || {};
+
+  console.log('[cancelPendingBooking] Request received:', { bookingId, bookingType });
+
+  if (!bookingId) {
+    return res.status(400).json({ error: "bookingId is required" });
+  }
+
+  let transaction;
+  try {
+    transaction = await models.sequelize.transaction();
+
+    // Try to find booking in both tables
+    let booking;
+    let isHelicopterBooking = false;
+
+    if (bookingType === 'helicopter') {
+      booking = await models.HelicopterBooking.findByPk(bookingId, { transaction });
+      isHelicopterBooking = true;
+    } else if (bookingType === 'flight') {
+      booking = await models.Booking.findByPk(bookingId, { transaction });
+      isHelicopterBooking = false;
+    } else {
+      // Auto-detect
+      booking = await models.Booking.findByPk(bookingId, { transaction });
+      if (!booking) {
+        booking = await models.HelicopterBooking.findByPk(bookingId, { transaction });
+        isHelicopterBooking = true;
+      }
+    }
+
+    if (!booking) {
+      throw new Error("Booking not found");
+    }
+
+    // Only cancel if PENDING
+    if (booking.bookingStatus !== "PENDING") {
+      throw new Error(`Cannot cancel booking with status: ${booking.bookingStatus}`);
+    }
+
+    // Update booking status
+    await booking.update(
+      {
+        bookingStatus: "CANCELLED",
+        paymentStatus: "CANCELLED",
+        cancellationReason: "Payment not completed or user cancelled",
+        cancelledAt: new Date(),
+      },
+      { transaction }
+    );
+
+    // Release seats (delete HOLD seats)
+    if (isHelicopterBooking) {
+      await models.HelicopterBookedSeat.destroy({
+        where: { 
+          helicopter_booking_id: bookingId,
+          status: 'HOLD'
+        },
+        transaction,
+      });
+    } else {
+      await models.BookedSeat.destroy({
+        where: { 
+          booking_id: bookingId,
+          status: 'HOLD'
+        },
+        transaction,
+      });
+    }
+
+    await transaction.commit();
+
+    console.log('[cancelPendingBooking] Booking cancelled successfully:', {
+      bookingId,
+      pnr: booking.pnr,
+      isHelicopter: isHelicopterBooking
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Booking cancelled and seats released",
+      booking: {
+        id: booking.id,
+        pnr: booking.pnr,
+        status: "CANCELLED",
+      },
+    });
+  } catch (error) {
+    if (transaction) await transaction.rollback();
+    console.error("[cancelPendingBooking] Error:", error);
+    return res.status(500).json({
+      error: error.message || "Failed to cancel booking",
+    });
+  }
+}
+
 module.exports = {
   completeBooking,
   completeBookingWithDiscount,
@@ -3736,4 +4381,8 @@ module.exports = {
   getBookingStatsMultiple,
   cancelBooking,
   rescheduleBooking,
+  // New functions for booking-first flow
+  createPendingBooking,
+  completeBookingAfterPayment,
+  cancelPendingBooking,
 };

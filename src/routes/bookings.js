@@ -8,6 +8,11 @@ const { authenticate } = require("../middleware/auth");
 router.get("/stats", bookingController.getBookingStats);
 router.get("/stats/dashboard", bookingController.getBookingStatsMultiple);
 
+// NEW: Booking-first flow endpoints (NO AUTH REQUIRED)
+router.post("/create-pending-booking", bookingController.createPendingBooking);
+router.post("/complete-booking-after-payment", bookingController.completeBookingAfterPayment);
+router.post("/cancel-pending/:bookingId", bookingController.cancelPendingBooking);
+
 router.get("/pnr", bookingController.getBookingByPnr);
 router.get("/by-user", bookingController.getBookingsByUser);
 router.get("/irctc-bookings", bookingController.getIrctcBookings);

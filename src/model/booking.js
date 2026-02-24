@@ -55,8 +55,8 @@ bookingStatus: {
   defaultValue: 'PENDING',
 },
     bookedUserId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
+      type: DataTypes.BIGINT.UNSIGNED,
+      allowNull: true, // Allow NULL for guest bookings
     },
     pay_amt: {
       type: DataTypes.STRING,
@@ -77,6 +77,26 @@ bookingStatus: {
     agentId: {
       type: DataTypes.BIGINT.UNSIGNED, // Matches Agent.id
       allowNull: true, // Allow null for bookings not tied to an agent
+    },
+    guest_booking: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      comment: 'True if booking made without login',
+    },
+    guest_email: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      comment: 'Email for guest bookings',
+    },
+    guest_phone: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      comment: 'Phone for guest bookings',
+    },
+    booking_expires_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: 'Expiry time for pending bookings (15 min)',
     },
     cancellationReason: {
       type: DataTypes.TEXT,

@@ -115,9 +115,17 @@ app.use(errorLogger);
 // Global error handler
 app.use(errorHandler);
 
+// Start cleanup job for expired bookings
+const { startCleanupJob } = require('./src/jobs/cleanupExpiredBookings');
+
 // Start the server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  
+  // Start the cleanup cron job
+  startCleanupJob();
+  console.log('✅ Cleanup job initialized');
 });
 
 module.exports = { app, io }; // Export both for potential use elsewhere

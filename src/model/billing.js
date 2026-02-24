@@ -42,8 +42,8 @@ const Billing = sequelize.define(
       allowNull: true,
     },
     user_id: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
+      type: DataTypes.BIGINT.UNSIGNED,
+      allowNull: true, // Allow NULL for guest bookings
     },
     created_at: {
       type: DataTypes.DATE,

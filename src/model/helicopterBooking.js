@@ -56,7 +56,7 @@ const HelicopterBooking = sequelize.define(
     },
     bookedUserId: {
       type: DataTypes.BIGINT.UNSIGNED,
-      allowNull: false,
+      allowNull: true, // Allow NULL for guest bookings
     },
     pay_amt: {
       type: DataTypes.STRING,
