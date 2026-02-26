@@ -16,4 +16,8 @@ router.get('/refunds', helicopterCancellationController.getUserHelicopterRefunds
 router.post('/admin-cancel/:bookingId', helicopterCancellationController.adminCancelBooking);
 router.get('/admin/refunds', helicopterCancellationController.getAllHelicopterRefunds);
 
+// Per-seat cancellation routes
+router.post('/cancel-seats/:bookingId', helicopterCancellationController.cancelSeats);
+router.post('/admin-cancel-seats/:bookingId', helicopterCancellationController.adminCancelSeats);
+
 module.exports = router;

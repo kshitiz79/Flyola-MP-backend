@@ -644,3 +644,462 @@ module.exports = {
   adminCancelBooking,
   getAllRefunds
 };
+
+
+// Cancel specific seats/passengers from a booking
+const cancelSeats = async (req, res) => {
+  const { bookingId } = req.params;
+  const { reason, passengerIds, seatIndices } = req.body;
+
+  let transaction;
+  try {
+    transaction = await models.sequelize.transaction();
+
+    // Find booking with related data
+    const booking = await models.Booking.findByPk(bookingId, {
+      include: [
+        { model: models.FlightSchedule },
+        { model: models.Payment, as: 'Payments' },
+        { model: models.Passenger },
+        { model: models.BookedSeat }
+      ],
+      transaction
+    });
+
+    if (!booking) {
+      await transaction.rollback();
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Booking not found' 
+      });
+    }
+
+    // Check if booking is already cancelled
+    if (booking.bookingStatus === 'CANCELLED') {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Booking is already cancelled' 
+      });
+    }
+
+    // Check if booking can be cancelled
+    if (booking.bookingStatus !== 'CONFIRMED' && booking.bookingStatus !== 'SUCCESS') {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Only confirmed bookings can be cancelled' 
+      });
+    }
+
+    // Validate passenger IDs
+    if (!passengerIds || passengerIds.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Please select at least one passenger to cancel' 
+      });
+    }
+
+    // Calculate hours before departure
+    const departureDateTime = dayjs(`${booking.bookDate} ${booking.FlightSchedule?.departure_time || '00:00'}`);
+    const now = dayjs();
+    const hoursBeforeDeparture = departureDateTime.diff(now, 'hour');
+
+    // Calculate per-seat refund
+    const totalFare = parseFloat(booking.totalFare);
+    const totalPassengers = booking.noOfPassengers;
+    const farePerSeat = totalFare / totalPassengers;
+    const seatsToCancel = passengerIds.length;
+
+    const totalFareForCancelledSeats = farePerSeat * seatsToCancel;
+    const refundAmountPerSeat = calculateRefundAmount(farePerSeat, hoursBeforeDeparture);
+    const cancellationChargesPerSeat = calculateCancellationCharges(farePerSeat, hoursBeforeDeparture);
+    
+    const totalRefundAmount = refundAmountPerSeat * seatsToCancel;
+    const totalCancellationCharges = cancellationChargesPerSeat * seatsToCancel;
+
+    // Mark passengers as cancelled
+    await models.Passenger.update(
+      { 
+        status: 'CANCELLED',
+        cancellation_reason: reason || 'User requested seat cancellation',
+        cancelled_at: new Date()
+      },
+      { 
+        where: { 
+          id: passengerIds,
+          bookingId: booking.id
+        },
+        transaction 
+      }
+    );
+
+    // Release the specific booked seats
+    const passengersToCancel = booking.Passengers.filter(p => passengerIds.includes(p.id));
+    const seatLabelsToRelease = passengersToCancel.map(p => p.seat_label).filter(Boolean);
+    
+    if (seatLabelsToRelease.length > 0) {
+      await models.BookedSeat.destroy({
+        where: { 
+          booking_id: booking.id,
+          seat_label: seatLabelsToRelease
+        },
+        transaction
+      });
+    }
+
+    // Update booking - if all passengers cancelled, mark booking as cancelled
+    const remainingPassengers = totalPassengers - seatsToCancel;
+    const newTotalFare = farePerSeat * remainingPassengers;
+    
+    if (remainingPassengers === 0) {
+      // All seats cancelled - cancel entire booking
+      await booking.update({
+        bookingStatus: 'CANCELLED',
+        cancellationReason: reason || 'All seats cancelled by user',
+        cancelledAt: new Date(),
+        refundAmount: totalRefundAmount,
+        cancellationCharges: totalCancellationCharges
+      }, { transaction });
+    } else {
+      // Partial cancellation - update fare and passenger count
+      await booking.update({
+        noOfPassengers: remainingPassengers,
+        totalFare: newTotalFare,
+        partialCancellation: true,
+        lastModified: new Date()
+      }, { transaction });
+    }
+
+    // Create refund record for cancelled seats
+    const refund = await models.Refund.create({
+      booking_id: booking.id,
+      user_id: booking.bookedUserId,
+      original_amount: totalFareForCancelledSeats,
+      refund_amount: totalRefundAmount,
+      cancellation_charges: totalCancellationCharges,
+      refund_status: totalRefundAmount > 0 ? 'PENDING' : 'NOT_APPLICABLE',
+      refund_reason: `Partial cancellation - ${seatsToCancel} seat(s)`,
+      hours_before_departure: hoursBeforeDeparture,
+      requested_at: new Date(),
+      seats_cancelled: seatsToCancel,
+      passenger_ids: JSON.stringify(passengerIds)
+    }, { transaction });
+
+    // Update payment if needed
+    if (totalRefundAmount > 0 && booking.Payments && booking.Payments.length > 0) {
+      const currentRefundAmount = parseFloat(booking.Payments[0].refund_amount || 0);
+      await models.Payment.update(
+        { 
+          payment_status: remainingPassengers === 0 ? 'REFUND_PENDING' : 'PARTIAL_REFUND_PENDING',
+          refund_amount: currentRefundAmount + totalRefundAmount,
+          updated_at: new Date()
+        },
+        { 
+          where: { booking_id: booking.id },
+          transaction 
+        }
+      );
+    }
+
+    await transaction.commit();
+
+    // Emit seat update event
+    if (req.io) {
+      req.io.emit('seats-updated', {
+        schedule_id: booking.schedule_id,
+        bookDate: booking.bookDate,
+        message: `${seatsToCancel} seat(s) released due to partial cancellation`
+      });
+    }
+
+    // Send email notification
+    try {
+      const departureAirport = await models.Airport.findByPk(booking.FlightSchedule?.departure_airport_id);
+      const arrivalAirport = await models.Airport.findByPk(booking.FlightSchedule?.arrival_airport_id);
+      const flight = await models.Flight.findByPk(booking.FlightSchedule?.flight_id);
+      
+      const cancelledPassengerNames = passengersToCancel.map(p => p.name).join(', ');
+      
+      const emailData = {
+        email: booking.email_id,
+        pnr: booking.pnr,
+        bookingNo: booking.bookingNo,
+        passengerName: cancelledPassengerNames,
+        departureCity: departureAirport?.city || 'Unknown',
+        arrivalCity: arrivalAirport?.city || 'Unknown',
+        departureDate: booking.bookDate,
+        departureTime: booking.FlightSchedule?.departure_time || 'N/A',
+        flightNumber: flight?.flight_number || 'N/A',
+        totalFare: totalFareForCancelledSeats,
+        refundAmount: totalRefundAmount,
+        cancellationCharges: totalCancellationCharges,
+        cancelledBy: 'User',
+        cancellationReason: reason || 'User requested seat cancellation',
+        bookingType: 'flight',
+        isPartialCancellation: remainingPassengers > 0,
+        seatsCancelled: seatsToCancel,
+        remainingSeats: remainingPassengers
+      };
+
+      await sendCancellationEmail(emailData);
+      console.log('✅ Seat cancellation email sent to:', booking.email_id);
+    } catch (emailError) {
+      console.error('❌ Failed to send seat cancellation email:', emailError);
+    }
+
+    res.json({
+      success: true,
+      message: `${seatsToCancel} seat(s) cancelled successfully`,
+      data: {
+        bookingId: booking.id,
+        pnr: booking.pnr,
+        seatsCancelled: seatsToCancel,
+        remainingSeats: remainingPassengers,
+        cancellationCharges: totalCancellationCharges,
+        refundAmount: totalRefundAmount,
+        refundStatus: totalRefundAmount > 0 ? 'PENDING' : 'NOT_APPLICABLE',
+        hoursBeforeDeparture,
+        refundId: refund.id,
+        bookingStatus: remainingPassengers === 0 ? 'CANCELLED' : 'CONFIRMED'
+      }
+    });
+
+  } catch (error) {
+    if (transaction) await transaction.rollback();
+    console.error('Error cancelling seats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to cancel seats: ' + error.message
+    });
+  }
+};
+
+// Admin: Cancel specific seats with full or policy-based refund
+const adminCancelSeats = async (req, res) => {
+  const { bookingId } = req.params;
+  const { reason, passengerIds, seatIndices, cancellationType, adminNotes } = req.body;
+
+  let transaction;
+  try {
+    transaction = await models.sequelize.transaction();
+
+    // Find booking with related data
+    const booking = await models.Booking.findByPk(bookingId, {
+      include: [
+        { model: models.FlightSchedule },
+        { model: models.Payment, as: 'Payments' },
+        { model: models.Passenger },
+        { model: models.BookedSeat }
+      ],
+      transaction
+    });
+
+    if (!booking) {
+      await transaction.rollback();
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Booking not found' 
+      });
+    }
+
+    // Check if booking can be cancelled
+    if (booking.bookingStatus !== 'CONFIRMED' && booking.bookingStatus !== 'SUCCESS') {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Only confirmed bookings can be cancelled' 
+      });
+    }
+
+    if (booking.bookingStatus === 'CANCELLED') {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Booking is already cancelled' 
+      });
+    }
+
+    // Validate passenger IDs
+    if (!passengerIds || passengerIds.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Please select at least one passenger to cancel' 
+      });
+    }
+
+    // Calculate hours before departure
+    const departureDateTime = dayjs(`${booking.bookDate} ${booking.FlightSchedule?.departure_time || '00:00'}`);
+    const now = dayjs();
+    const hoursBeforeDeparture = departureDateTime.diff(now, 'hour');
+
+    // Calculate per-seat refund
+    const totalFare = parseFloat(booking.totalFare);
+    const totalPassengers = booking.noOfPassengers;
+    const farePerSeat = totalFare / totalPassengers;
+    const seatsToCancel = passengerIds.length;
+
+    const totalFareForCancelledSeats = farePerSeat * seatsToCancel;
+    
+    let refundAmountPerSeat, cancellationChargesPerSeat;
+    
+    if (cancellationType === 'full') {
+      // Admin full refund - no charges
+      refundAmountPerSeat = farePerSeat;
+      cancellationChargesPerSeat = 0;
+    } else {
+      // Policy-based refund
+      refundAmountPerSeat = calculateRefundAmount(farePerSeat, hoursBeforeDeparture);
+      cancellationChargesPerSeat = calculateCancellationCharges(farePerSeat, hoursBeforeDeparture);
+    }
+    
+    const totalRefundAmount = refundAmountPerSeat * seatsToCancel;
+    const totalCancellationCharges = cancellationChargesPerSeat * seatsToCancel;
+
+    // Mark passengers as cancelled
+    await models.Passenger.update(
+      { 
+        status: 'CANCELLED',
+        cancellation_reason: reason || `Admin seat cancellation - ${cancellationType === 'full' ? 'Full refund' : 'Policy-based'}`,
+        cancelled_at: new Date()
+      },
+      { 
+        where: { 
+          id: passengerIds,
+          bookingId: booking.id
+        },
+        transaction 
+      }
+    );
+
+    // Release the specific booked seats
+    const passengersToCancel = booking.Passengers.filter(p => passengerIds.includes(p.id));
+    const seatLabelsToRelease = passengersToCancel.map(p => p.seat_label).filter(Boolean);
+    
+    if (seatLabelsToRelease.length > 0) {
+      await models.BookedSeat.destroy({
+        where: { 
+          booking_id: booking.id,
+          seat_label: seatLabelsToRelease
+        },
+        transaction
+      });
+    }
+
+    // Update booking
+    const remainingPassengers = totalPassengers - seatsToCancel;
+    const newTotalFare = farePerSeat * remainingPassengers;
+    
+    if (remainingPassengers === 0) {
+      // All seats cancelled - cancel entire booking
+      await booking.update({
+        bookingStatus: 'CANCELLED',
+        cancellationReason: reason || `Admin cancelled all seats - ${cancellationType === 'full' ? 'Full refund' : 'Policy-based'}`,
+        cancelledAt: new Date(),
+        refundAmount: totalRefundAmount,
+        cancellationCharges: totalCancellationCharges
+      }, { transaction });
+    } else {
+      // Partial cancellation
+      await booking.update({
+        noOfPassengers: remainingPassengers,
+        totalFare: newTotalFare,
+        partialCancellation: true,
+        lastModified: new Date()
+      }, { transaction });
+    }
+
+    // Create refund record (auto-approved for admin)
+    const refund = await models.Refund.create({
+      booking_id: booking.id,
+      user_id: booking.bookedUserId,
+      original_amount: totalFareForCancelledSeats,
+      refund_amount: totalRefundAmount,
+      cancellation_charges: totalCancellationCharges,
+      refund_status: totalRefundAmount > 0 ? 'APPROVED' : 'NOT_APPLICABLE',
+      refund_reason: `Admin partial cancellation - ${seatsToCancel} seat(s) - ${cancellationType === 'full' ? 'Full refund' : 'Policy-based'}`,
+      hours_before_departure: hoursBeforeDeparture,
+      requested_at: new Date(),
+      processed_at: new Date(),
+      processed_by: req.user.id,
+      admin_notes: adminNotes || `Admin ${cancellationType === 'full' ? 'full' : 'policy-based'} refund for ${seatsToCancel} seat(s)`,
+      seats_cancelled: seatsToCancel,
+      passenger_ids: JSON.stringify(passengerIds)
+    }, { transaction });
+
+    await transaction.commit();
+
+    // Send email notification
+    try {
+      const departureAirport = await models.Airport.findByPk(booking.FlightSchedule?.departure_airport_id);
+      const arrivalAirport = await models.Airport.findByPk(booking.FlightSchedule?.arrival_airport_id);
+      const flight = await models.Flight.findByPk(booking.FlightSchedule?.flight_id);
+      
+      const cancelledPassengerNames = passengersToCancel.map(p => p.name).join(', ');
+      
+      const emailData = {
+        email: booking.email_id,
+        pnr: booking.pnr,
+        bookingNo: booking.bookingNo,
+        passengerName: cancelledPassengerNames,
+        departureCity: departureAirport?.city || 'Unknown',
+        arrivalCity: arrivalAirport?.city || 'Unknown',
+        departureDate: booking.bookDate,
+        departureTime: booking.FlightSchedule?.departure_time || 'N/A',
+        flightNumber: flight?.flight_number || 'N/A',
+        totalFare: totalFareForCancelledSeats,
+        refundAmount: totalRefundAmount,
+        cancellationCharges: totalCancellationCharges,
+        cancelledBy: 'Admin',
+        cancellationReason: reason || `Admin seat cancellation - ${cancellationType === 'full' ? 'Full refund' : 'Policy-based'}`,
+        bookingType: 'flight',
+        isPartialCancellation: remainingPassengers > 0,
+        seatsCancelled: seatsToCancel,
+        remainingSeats: remainingPassengers
+      };
+
+      await sendCancellationEmail(emailData);
+      console.log('✅ Admin seat cancellation email sent to:', booking.email_id);
+    } catch (emailError) {
+      console.error('❌ Failed to send admin seat cancellation email:', emailError);
+    }
+
+    res.json({
+      success: true,
+      message: `${seatsToCancel} seat(s) cancelled successfully with ${cancellationType === 'full' ? 'full refund' : 'policy-based refund'}`,
+      data: {
+        bookingId: booking.id,
+        pnr: booking.pnr,
+        seatsCancelled: seatsToCancel,
+        remainingSeats: remainingPassengers,
+        cancellationCharges: totalCancellationCharges,
+        refundAmount: totalRefundAmount,
+        refundStatus: totalRefundAmount > 0 ? 'APPROVED' : 'NOT_APPLICABLE',
+        cancellationType,
+        processedBy: 'Admin',
+        bookingStatus: remainingPassengers === 0 ? 'CANCELLED' : 'CONFIRMED'
+      }
+    });
+
+  } catch (error) {
+    if (transaction) await transaction.rollback();
+    console.error('Error in admin seat cancellation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to cancel seats: ' + error.message
+    });
+  }
+};
+
+module.exports = {
+  cancelBooking,
+  getCancellationDetails,
+  getUserRefunds,
+  processRefund: processRefundAdmin,
+  adminCancelBooking,
+  getAllRefunds,
+  cancelSeats,
+  adminCancelSeats
+};
