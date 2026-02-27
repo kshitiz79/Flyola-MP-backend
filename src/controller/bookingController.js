@@ -2432,6 +2432,107 @@ async function getBookingByPnr(req, res) {
   }
 }
 
+async function getBookingByEsmPnr(req, res) {
+  const { pnr } = req.query;
+
+  try {
+    if (!pnr) {
+      return res.status(400).json({ error: "PNR is required" });
+    }
+
+    // Attempt to find in HelicopterBookings first
+    const helicopterBooking = await models.HelicopterBooking.findOne({
+      where: { pnr },
+      include: [
+        {
+          model: models.HelicopterSchedule,
+          include: [
+            { model: models.Helicopter, as: "Helicopter" },
+            { model: models.Helipad, as: "DepartureLocation" },
+            { model: models.Helipad, as: "ArrivalLocation" },
+          ],
+        },
+        { model: models.HelicopterPassenger, as: "Passengers" },
+        { model: models.Agent },
+        { model: models.User },
+      ],
+    });
+
+    if (helicopterBooking) {
+      const hb = helicopterBooking.toJSON();
+      return res.json({
+        pnr: hb.pnr,
+        bookingNo: hb.bookingNo,
+        bookingType: "helicopter",
+        flight_name: hb.HelicopterSchedule?.Helicopter?.helicopter_number || "N/A",
+        departure_name: hb.HelicopterSchedule?.DepartureLocation?.helipad_name || "N/A",
+        arrival_name: hb.HelicopterSchedule?.ArrivalLocation?.helipad_name || "N/A",
+        departure_city: hb.HelicopterSchedule?.DepartureLocation?.city || "N/A",
+        arrival_city: hb.HelicopterSchedule?.ArrivalLocation?.city || "N/A",
+        departure_time: hb.HelicopterSchedule?.departure_time,
+        arrival_time: hb.HelicopterSchedule?.arrival_time,
+        bookDate: hb.bookDate,
+        totalFare: hb.totalFare,
+        bookingStatus: hb.bookingStatus,
+        paymentStatus: hb.paymentStatus,
+        c_name: hb.Agent?.username || hb.User?.name || "Direct",
+        noOfPassengers: hb.noOfPassengers,
+        passengers: hb.Passengers,
+        contact_no: hb.contact_no,
+        email_id: hb.email_id,
+      });
+    }
+
+    // Then try regular Flight Bookings
+    const booking = await models.Booking.findOne({
+      where: { pnr },
+      include: [
+        {
+          model: models.FlightSchedule,
+          include: [
+            { model: models.Flight },
+            { model: models.Airport, as: "DepartureAirport" },
+            { model: models.Airport, as: "ArrivalAirport" },
+          ],
+        },
+        { model: models.Passenger },
+        { model: models.Agent },
+        { model: models.User },
+      ],
+    });
+
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    const b = booking.toJSON();
+    return res.json({
+      pnr: b.pnr,
+      bookingNo: b.bookingNo,
+      bookingType: "flight",
+      flight_name: b.FlightSchedule?.Flight?.flight_number || "N/A",
+      departure_name: b.FlightSchedule?.DepartureAirport?.airport_name || "N/A",
+      arrival_name: b.FlightSchedule?.ArrivalAirport?.airport_name || "N/A",
+      departure_city: b.FlightSchedule?.DepartureAirport?.city || "N/A",
+      arrival_city: b.FlightSchedule?.ArrivalAirport?.city || "N/A",
+      departure_time: b.FlightSchedule?.departure_time,
+      arrival_time: b.FlightSchedule?.arrival_time,
+      bookDate: b.bookDate,
+      totalFare: b.totalFare,
+      bookingStatus: b.bookingStatus,
+      paymentStatus: b.paymentStatus,
+      c_name: b.Agent?.username || b.User?.name || "Direct",
+      noOfPassengers: b.noOfPassengers,
+      passengers: b.Passengers,
+      contact_no: b.contact_no,
+      email_id: b.email_id,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to fetch booking: " + err.message });
+  }
+}
+
+
 async function cancelIrctcBooking(req, res) {
   const { id } = req.params;
   let t;
@@ -4372,6 +4473,7 @@ module.exports = {
   deleteBooking,
   getBookingSummary,
   getBookingByPnr,
+  getBookingByEsmPnr,
   cancelIrctcBooking,
   rescheduleIrctcBooking,
   cancelHelicopterBooking,

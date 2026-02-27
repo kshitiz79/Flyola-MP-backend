@@ -14,6 +14,7 @@ router.post("/complete-booking-after-payment", bookingController.completeBooking
 router.post("/cancel-pending/:bookingId", bookingController.cancelPendingBooking);
 
 router.get("/pnr", bookingController.getBookingByPnr);
+router.get("/esm/pnr", bookingController.getBookingByEsmPnr);
 router.get("/by-user", bookingController.getBookingsByUser);
 router.get("/irctc-bookings", bookingController.getIrctcBookings);
 router.get("/generate-pnr", bookingController.generatePNR);
