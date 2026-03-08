@@ -35,6 +35,11 @@ const Airport = sequelize.define('Airport', {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
   },
+  terminals: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    defaultValue: ["1"],
+  },
 }, {
   tableName: 'airports',
   timestamps: true,

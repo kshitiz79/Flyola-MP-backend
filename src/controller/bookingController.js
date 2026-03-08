@@ -2453,6 +2453,13 @@ async function getBookingByEsmPnr(req, res) {
           ],
         },
         { model: models.HelicopterPassenger, as: "Passengers" },
+        {
+          model: models.HelicopterBookedSeat,
+          as: "BookedSeats",
+          attributes: ["seat_label"],
+          required: false,
+        },
+        { model: models.HelicopterPayment, as: "Payments", required: false },
         { model: models.Agent },
         { model: models.User },
       ],
@@ -2460,26 +2467,31 @@ async function getBookingByEsmPnr(req, res) {
 
     if (helicopterBooking) {
       const hb = helicopterBooking.toJSON();
+      const billing = await models.Billing.findOne({
+        where: { user_id: hb.bookedUserId },
+      });
+
+      // Destructure to remove redundant heavy objects from the root response
+      const { HelicopterSchedule, Passengers, BookedSeats, Payments, Agent, User, ...baseData } = hb;
+
       return res.json({
-        pnr: hb.pnr,
-        bookingNo: hb.bookingNo,
+        ...baseData,
         bookingType: "helicopter",
-        flight_name: hb.HelicopterSchedule?.Helicopter?.helicopter_number || "N/A",
-        departure_name: hb.HelicopterSchedule?.DepartureLocation?.helipad_name || "N/A",
-        arrival_name: hb.HelicopterSchedule?.ArrivalLocation?.helipad_name || "N/A",
-        departure_city: hb.HelicopterSchedule?.DepartureLocation?.city || "N/A",
-        arrival_city: hb.HelicopterSchedule?.ArrivalLocation?.city || "N/A",
-        departure_time: hb.HelicopterSchedule?.departure_time,
-        arrival_time: hb.HelicopterSchedule?.arrival_time,
-        bookDate: hb.bookDate,
-        totalFare: hb.totalFare,
-        bookingStatus: hb.bookingStatus,
-        paymentStatus: hb.paymentStatus,
-        c_name: hb.Agent?.username || hb.User?.name || "Direct",
-        noOfPassengers: hb.noOfPassengers,
-        passengers: hb.Passengers,
-        contact_no: hb.contact_no,
-        email_id: hb.email_id,
+        seatLabels: BookedSeats?.map((s) => s.seat_label) || [],
+        billing: billing ? billing.toJSON() : null,
+        // Flat fields for ESM compatibility
+        flight_name: HelicopterSchedule?.Helicopter?.helicopter_number || "N/A",
+        departure_name: HelicopterSchedule?.DepartureLocation?.helipad_name || "N/A",
+        arrival_name: HelicopterSchedule?.ArrivalLocation?.helipad_name || "N/A",
+        departure_city: HelicopterSchedule?.DepartureLocation?.city || "N/A",
+        arrival_city: HelicopterSchedule?.ArrivalLocation?.city || "N/A",
+        departure_time: HelicopterSchedule?.departure_time,
+        arrival_time: HelicopterSchedule?.arrival_time,
+        departure_date: baseData.bookDate,
+        arrival_date: baseData.bookDate,
+        c_name: Agent?.username || User?.name || "Direct",
+        passengers: Passengers || [],
+        payments: Payments || [],
       });
     }
 
@@ -2495,7 +2507,13 @@ async function getBookingByEsmPnr(req, res) {
             { model: models.Airport, as: "ArrivalAirport" },
           ],
         },
+        {
+          model: models.BookedSeat,
+          attributes: ["seat_label"],
+          required: false,
+        },
         { model: models.Passenger },
+        { model: models.Payment, as: "Payments", required: false },
         { model: models.Agent },
         { model: models.User },
       ],
@@ -2506,26 +2524,34 @@ async function getBookingByEsmPnr(req, res) {
     }
 
     const b = booking.toJSON();
+    const billing = await models.Billing.findOne({
+      where: { user_id: b.bookedUserId },
+    });
+
+    // Destructure to remove redundant heavy objects from the root response
+    const { FlightSchedule, Passengers, BookedSeats, Payments, Agent, User, ...baseData } = b;
+
     return res.json({
-      pnr: b.pnr,
-      bookingNo: b.bookingNo,
+      ...baseData,
       bookingType: "flight",
-      flight_name: b.FlightSchedule?.Flight?.flight_number || "N/A",
-      departure_name: b.FlightSchedule?.DepartureAirport?.airport_name || "N/A",
-      arrival_name: b.FlightSchedule?.ArrivalAirport?.airport_name || "N/A",
-      departure_city: b.FlightSchedule?.DepartureAirport?.city || "N/A",
-      arrival_city: b.FlightSchedule?.ArrivalAirport?.city || "N/A",
-      departure_time: b.FlightSchedule?.departure_time,
-      arrival_time: b.FlightSchedule?.arrival_time,
-      bookDate: b.bookDate,
-      totalFare: b.totalFare,
-      bookingStatus: b.bookingStatus,
-      paymentStatus: b.paymentStatus,
-      c_name: b.Agent?.username || b.User?.name || "Direct",
-      noOfPassengers: b.noOfPassengers,
-      passengers: b.Passengers,
-      contact_no: b.contact_no,
-      email_id: b.email_id,
+      flightNumber: FlightSchedule?.Flight?.flight_number || "N/A",
+      seatLabels: BookedSeats?.map((s) => s.seat_label) || [],
+      billing: billing ? billing.toJSON() : null,
+      // Flat fields for ESM compatibility
+      flight_name: FlightSchedule?.Flight?.flight_number || "N/A",
+      departure_name: FlightSchedule?.DepartureAirport?.airport_name || "N/A",
+      arrival_name: FlightSchedule?.ArrivalAirport?.airport_name || "N/A",
+      departure_city: FlightSchedule?.DepartureAirport?.city || "N/A",
+      arrival_city: FlightSchedule?.ArrivalAirport?.city || "N/A",
+      departure_terminals: FlightSchedule?.DepartureAirport?.terminals || ["1"],
+      arrival_terminals: FlightSchedule?.ArrivalAirport?.terminals || ["1"],
+      departure_time: FlightSchedule?.departure_time,
+      arrival_time: FlightSchedule?.arrival_time,
+      departure_date: baseData.bookDate,
+      arrival_date: baseData.bookDate,
+      c_name: Agent?.username || User?.name || "Direct",
+      passengers: Passengers || [],
+      payments: Payments || [],
     });
   } catch (err) {
     return res.status(500).json({ error: "Failed to fetch booking: " + err.message });

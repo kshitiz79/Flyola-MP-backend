@@ -15,7 +15,8 @@ const addAirport = async (req, res) => {
     city, 
     airport_code, 
     airport_name, 
-    status = 1
+    status = 1,
+    terminals = ["1"]
   } = req.body;
   
   // Validate required fields
@@ -36,7 +37,8 @@ const addAirport = async (req, res) => {
       city, 
       airport_code,
       airport_name,
-      status
+      status,
+      terminals
     });
     
     res.status(201).json({
@@ -54,7 +56,8 @@ const updateAirport = async (req, res) => {
     city, 
     airport_code, 
     airport_name, 
-    status
+    status,
+    terminals
   } = req.body;
   
   // Validate required fields
@@ -80,7 +83,8 @@ const updateAirport = async (req, res) => {
       city, 
       airport_code,
       airport_name,
-      status: status ?? airport.status
+      status: status ?? airport.status,
+      terminals: terminals ?? airport.terminals
     });
     
     res.json({ message: 'Airport updated successfully', airport });
