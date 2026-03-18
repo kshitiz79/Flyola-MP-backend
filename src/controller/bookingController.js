@@ -2481,8 +2481,8 @@ async function getBookingByEsmPnr(req, res) {
         billing: billing ? billing.toJSON() : null,
         // Flat fields for ESM compatibility
         flight_name: HelicopterSchedule?.Helicopter?.helicopter_number || "N/A",
-        departure_name: HelicopterSchedule?.DepartureLocation?.helipad_code || "N/A",
-        arrival_name: HelicopterSchedule?.ArrivalLocation?.helipad_code || "N/A",
+        departure_name: HelicopterSchedule?.DepartureLocation?.helipad_name || "N/A",
+        arrival_name: HelicopterSchedule?.ArrivalLocation?.helipad_name || "N/A",
         departure_code: HelicopterSchedule?.DepartureLocation?.helipad_code || "N/A",
         arrival_code: HelicopterSchedule?.ArrivalLocation?.helipad_code || "N/A",
         departure_city: HelicopterSchedule?.DepartureLocation?.city || "N/A",
@@ -2541,8 +2541,8 @@ async function getBookingByEsmPnr(req, res) {
       billing: billing ? billing.toJSON() : null,
       // Flat fields for ESM compatibility
       flight_name: FlightSchedule?.Flight?.flight_number || "N/A",
-      departure_name: FlightSchedule?.DepartureAirport?.airport_code || "N/A",
-      arrival_name: FlightSchedule?.ArrivalAirport?.airport_code || "N/A",
+      departure_name: FlightSchedule?.DepartureAirport?.airport_name || "N/A",
+      arrival_name: FlightSchedule?.ArrivalAirport?.airport_name || "N/A",
       departure_code: FlightSchedule?.DepartureAirport?.airport_code || "N/A",
       arrival_code: FlightSchedule?.ArrivalAirport?.airport_code || "N/A",
       departure_city: FlightSchedule?.DepartureAirport?.city || "N/A",
