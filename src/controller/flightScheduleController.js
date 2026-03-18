@@ -67,6 +67,24 @@ async function getFlightSchedules(req, res) {
         }
       });
     }
+
+    // For admin requests, return all schedule records directly without date-expansion.
+    // Admins need to see every schedule record regardless of weekday/flight status.
+    if (isAdminRequest) {
+      output = rows.map((schedule) => {
+        let viaStopIds = [];
+        try {
+          viaStopIds = schedule.via_stop_id ? JSON.parse(schedule.via_stop_id) : [];
+          viaStopIds = viaStopIds.filter((id) => id && Number.isInteger(id) && id !== 0);
+        } catch (e) {}
+
+        return {
+          ...schedule.toJSON(),
+          via_stop_id: JSON.stringify(viaStopIds),
+        };
+      });
+      return res.json(output);
+    }
     
     if (startDate && endDate) {
 
