@@ -107,18 +107,49 @@ async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, user
     })
     .map((s) => s.id);
   
-  // Check booked seats across ALL overlapping schedules
+  // Check booked seats across ALL overlapping schedules (only CONFIRMED seats permanently block availability)
   const bookedSeatsRows = await models.HelicopterBookedSeat.findAll({
     where: {
       helicopter_schedule_id: relevantScheduleIds,
       bookDate,
+      status: 'CONFIRMED',
     },
     attributes: ['seat_label'],
     transaction,
   });
+
+  // Also include HOLD seats from active (non-expired) pending bookings
+  const now = new Date();
+  const holdSeatsRows = await models.HelicopterBookedSeat.findAll({
+    where: {
+      helicopter_schedule_id: relevantScheduleIds,
+      bookDate,
+      status: 'HOLD',
+    },
+    attributes: ['seat_label', 'helicopter_booking_id'],
+    transaction,
+  }).catch(() => []);
+
+  // Filter to only holds whose booking hasn't expired yet
+  let activeHoldLabels = [];
+  if (holdSeatsRows.length > 0) {
+    const holdBookingIds = [...new Set(holdSeatsRows.map(r => r.helicopter_booking_id))];
+    const activeBookings = await models.HelicopterBooking.findAll({
+      where: {
+        id: holdBookingIds,
+        bookingStatus: 'PENDING',
+        booking_expires_at: { [models.Sequelize.Op.gt]: now },
+      },
+      attributes: ['id'],
+      transaction,
+    }).catch(() => []);
+    const activeIds = new Set(activeBookings.map(b => b.id));
+    activeHoldLabels = holdSeatsRows
+      .filter(r => activeIds.has(r.helicopter_booking_id))
+      .map(r => r.seat_label);
+  }
   
   // Check held seats across ALL overlapping schedules
-  const now = new Date();
   let heldSeatsRows = [];
   try {
     if (userId) {
@@ -149,8 +180,9 @@ async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, user
   }
   
   const bookedSeats = new Set(bookedSeatsRows.map((row) => row.seat_label));
+  const activeHolds = new Set(activeHoldLabels);
   const heldByOthers = new Set(heldSeatsRows.map((row) => row.seat_label));
-  const unavailableSeats = new Set([...bookedSeats, ...heldByOthers]);
+  const unavailableSeats = new Set([...bookedSeats, ...activeHolds, ...heldByOthers]);
   
   const availableSeats = allSeats.filter((seat) => !unavailableSeats.has(seat));
   return availableSeats;

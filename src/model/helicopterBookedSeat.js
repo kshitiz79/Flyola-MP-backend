@@ -29,6 +29,10 @@ const HelicopterBookedSeat = sequelize.define(
       type: DataTypes.TINYINT,
       defaultValue: 1,
     },
+    status: {
+      type: DataTypes.STRING(20),
+      defaultValue: 'CONFIRMED',
+    },
     created_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
