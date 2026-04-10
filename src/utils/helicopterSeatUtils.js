@@ -107,13 +107,19 @@ async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, user
     })
     .map((s) => s.id);
   
-  // Check booked seats across ALL overlapping schedules (only CONFIRMED seats permanently block availability)
+  // Only seats from CONFIRMED bookings block availability — cancelled bookings must never count
   const bookedSeatsRows = await models.HelicopterBookedSeat.findAll({
     where: {
       helicopter_schedule_id: relevantScheduleIds,
       bookDate,
       status: 'CONFIRMED',
     },
+    include: [{
+      model: models.HelicopterBooking,
+      attributes: [],
+      where: { bookingStatus: 'CONFIRMED' },
+      required: true,
+    }],
     attributes: ['seat_label'],
     transaction,
   });

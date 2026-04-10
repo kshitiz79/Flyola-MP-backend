@@ -462,7 +462,8 @@ const adminCancelBooking = async (req, res) => {
           ]
         },
         { model: models.User },
-        { model: models.Passenger }
+        { model: models.Passenger },
+        { model: models.BookedSeat }
       ],
       transaction
     });
@@ -494,7 +495,7 @@ const adminCancelBooking = async (req, res) => {
     }
 
     // Calculate hours before departure
-    const departureDateTime = dayjs(`${booking.bookDate} ${booking.FlightSchedule.departure_time}`);
+    const departureDateTime = dayjs(`${booking.bookDate} ${booking.FlightSchedule?.departure_time || '00:00'}`);
     const now = dayjs();
     const hoursBeforeDeparture = departureDateTime.diff(now, 'hour', true);
 

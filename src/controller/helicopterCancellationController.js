@@ -131,7 +131,8 @@ const adminCancelBooking = async (req, res) => {
                     ]
                 },
                 { model: models.User },
-                { model: models.HelicopterPassenger, as: 'Passengers' }
+                { model: models.HelicopterPassenger, as: 'Passengers' },
+                { model: models.HelicopterBookedSeat, as: 'BookedSeats' }
             ],
             transaction
         });
@@ -163,7 +164,7 @@ const adminCancelBooking = async (req, res) => {
         }
 
         // Calculate hours before departure
-        const departureDateTime = dayjs(`${booking.bookDate} ${booking.HelicopterSchedule.departure_time}`);
+        const departureDateTime = dayjs(`${booking.bookDate} ${booking.HelicopterSchedule?.departure_time || '00:00'}`);
         const now = dayjs();
         const hoursBeforeDeparture = departureDateTime.diff(now, 'hour', true);
 

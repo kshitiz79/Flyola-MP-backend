@@ -17,7 +17,7 @@ const Refund = sequelize.define('Refund', {
   },
   user_id: {
     type: DataTypes.BIGINT.UNSIGNED,
-    allowNull: false,
+    allowNull: true,
     references: {
       model: 'users',
       key: 'id'
