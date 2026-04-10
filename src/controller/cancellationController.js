@@ -526,13 +526,13 @@ const adminCancelBooking = async (req, res) => {
     // Create refund record
     const refund = await models.Refund.create({
       booking_id: booking.id,
-      user_id: booking.bookedUserId,
+      user_id: booking.bookedUserId || null,
       original_amount: totalFare,
       refund_amount: refundAmount,
       cancellation_charges: cancellationCharges,
       refund_status: refundAmount > 0 ? 'APPROVED' : 'NOT_APPLICABLE', // Admin cancellations are auto-approved
       refund_reason: `Admin cancellation - ${cancellationType === 'full' ? 'Full refund granted' : 'Policy-based refund'}`,
-      hours_before_departure: hoursBeforeDeparture,
+      hours_before_departure: Math.round(hoursBeforeDeparture),
       requested_at: new Date(),
       processed_at: new Date(),
       processed_by: req.user.id, // Admin user ID
@@ -600,6 +600,8 @@ const adminCancelBooking = async (req, res) => {
 
   } catch (error) {
     if (transaction) await transaction.rollback();
+    console.error('❌ Admin cancellation error for booking', bookingId, ':', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({
       success: false,
       error: 'Failed to cancel booking: ' + error.message
@@ -635,15 +637,6 @@ const getAllRefunds = async (req, res) => {
       error: 'Failed to fetch refunds: ' + error.message
     });
   }
-};
-
-module.exports = {
-  cancelBooking,
-  getCancellationDetails,
-  getUserRefunds,
-  processRefund: processRefundAdmin,
-  adminCancelBooking,
-  getAllRefunds
 };
 
 
