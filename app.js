@@ -101,6 +101,8 @@ app.use('/api/joyride-bookings', require('./src/routes/joyRideBookings'));
 app.use('/api/admin', require('./src/routes/adminDashboard'));
 app.use('/system-settings', require('./src/routes/systemSettingsRoutes'));
 app.use('/api/schedule-file', require('./src/routes/scheduleFile'));
+app.use('/api/aeroplane', require('./src/routes/aeroplaneRoutes')); 
+app.use('/api/webhook', require('./src/routes/webhookRoutes')); 
 
 
 // Error handling middleware
