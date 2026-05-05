@@ -7,37 +7,48 @@ const cron = require('node-cron');
 const models = require('../model');
 const { Op } = require('sequelize');
 
+// A booking is considered expired if it has been PENDING for more than 20 minutes.
+// This covers both cases:
+//   1. booking_expires_at is set and has passed (new bookings)
+//   2. booking_expires_at is NULL but created_at is old (helicopter bookings — field missing from model)
+const EXPIRY_MINUTES = 20;
+
 /**
  * Cleanup expired flight bookings
  */
 async function cleanupExpiredFlightBookings() {
   try {
+    const cutoff = new Date(Date.now() - EXPIRY_MINUTES * 60 * 1000);
+
+    // Match bookings that are PENDING and either:
+    //   - have an explicit expiry time that has passed, OR
+    //   - have no expiry time but were created more than EXPIRY_MINUTES ago
     const expiredBookings = await models.Booking.findAll({
       where: {
         bookingStatus: 'PENDING',
-        booking_expires_at: {
-          [Op.lt]: new Date(),
-          [Op.not]: null,
-        },
+        [Op.or]: [
+          {
+            booking_expires_at: {
+              [Op.lt]: new Date(),
+              [Op.not]: null,
+            },
+          },
+          {
+            booking_expires_at: null,
+            created_at: { [Op.lt]: cutoff },
+          },
+        ],
       },
-      include: [
-        {
-          model: models.BookedSeat,
-          as: 'BookedSeats',
-        },
-      ],
+      include: [{ model: models.BookedSeat, as: 'BookedSeats' }],
     });
 
-    if (expiredBookings.length === 0) {
-      return 0;
-    }
+    if (expiredBookings.length === 0) return 0;
 
     let cleanedCount = 0;
 
     for (const booking of expiredBookings) {
       try {
         await models.sequelize.transaction(async (t) => {
-          // Update booking status to EXPIRED
           await booking.update(
             {
               bookingStatus: 'EXPIRED',
@@ -48,14 +59,11 @@ async function cleanupExpiredFlightBookings() {
             { transaction: t }
           );
 
-          // Release all seats for this booking regardless of status.
-          // Seats are created with status='CONFIRMED' by default (not 'HOLD'),
-          // so filtering by status:'HOLD' would delete 0 rows and leave orphaned
-          // seat records blocking availability for other users.
+          // Delete ALL seats for this booking regardless of status.
+          // Seats default to status='CONFIRMED', not 'HOLD', so filtering
+          // by status would silently delete nothing.
           const deletedSeats = await models.BookedSeat.destroy({
-            where: {
-              booking_id: booking.id,
-            },
+            where: { booking_id: booking.id },
             transaction: t,
           });
 
@@ -63,7 +71,7 @@ async function cleanupExpiredFlightBookings() {
           cleanedCount++;
         });
       } catch (error) {
-        console.error(`[Cleanup] Failed to cleanup booking ${booking.id}:`, error.message);
+        console.error(`[Cleanup] Failed to cleanup flight booking ${booking.id}:`, error.message);
       }
     }
 
@@ -75,36 +83,30 @@ async function cleanupExpiredFlightBookings() {
 }
 
 /**
- * Cleanup expired helicopter bookings
+ * Cleanup expired helicopter bookings.
+ *
+ * NOTE: HelicopterBooking model does NOT have a booking_expires_at column,
+ * so we fall back entirely to created_at age to detect stale PENDING bookings.
  */
 async function cleanupExpiredHelicopterBookings() {
   try {
+    const cutoff = new Date(Date.now() - EXPIRY_MINUTES * 60 * 1000);
+
     const expiredBookings = await models.HelicopterBooking.findAll({
       where: {
         bookingStatus: 'PENDING',
-        booking_expires_at: {
-          [Op.lt]: new Date(),
-          [Op.not]: null,
-        },
+        created_at: { [Op.lt]: cutoff },
       },
-      include: [
-        {
-          model: models.HelicopterBookedSeat,
-          as: 'BookedSeats',
-        },
-      ],
+      include: [{ model: models.HelicopterBookedSeat, as: 'BookedSeats' }],
     });
 
-    if (expiredBookings.length === 0) {
-      return 0;
-    }
+    if (expiredBookings.length === 0) return 0;
 
     let cleanedCount = 0;
 
     for (const booking of expiredBookings) {
       try {
         await models.sequelize.transaction(async (t) => {
-          // Update booking status to EXPIRED
           await booking.update(
             {
               bookingStatus: 'EXPIRED',
@@ -115,14 +117,11 @@ async function cleanupExpiredHelicopterBookings() {
             { transaction: t }
           );
 
-          // Release all seats for this booking regardless of status.
-          // Seats are created with status='CONFIRMED' by default (not 'HOLD'),
-          // so filtering by status:'HOLD' would delete 0 rows and leave orphaned
-          // seat records blocking availability for other users.
+          // Delete ALL seats for this booking regardless of status.
+          // Seats default to status='CONFIRMED', not 'HOLD', so filtering
+          // by status would silently delete nothing.
           const deletedSeats = await models.HelicopterBookedSeat.destroy({
-            where: {
-              helicopter_booking_id: booking.id,
-            },
+            where: { helicopter_booking_id: booking.id },
             transaction: t,
           });
 
@@ -138,6 +137,45 @@ async function cleanupExpiredHelicopterBookings() {
   } catch (error) {
     console.error('[Cleanup] Error in cleanupExpiredHelicopterBookings:', error);
     return 0;
+  }
+}
+
+/**
+ * One-time cleanup for orphaned booked_seats rows that belong to bookings
+ * which are already EXPIRED or CANCELLED but whose seat rows were never deleted
+ * (caused by the old status:'HOLD' bug).
+ */
+async function cleanupOrphanedSeats() {
+  try {
+    // Flight orphaned seats
+    const orphanedFlightSeats = await models.BookedSeat.destroy({
+      where: {
+        booking_id: {
+          [Op.in]: models.sequelize.literal(
+            `(SELECT id FROM bookings WHERE bookingStatus IN ('EXPIRED', 'CANCELLED'))`
+          ),
+        },
+      },
+    });
+
+    // Helicopter orphaned seats
+    const orphanedHelicopterSeats = await models.HelicopterBookedSeat.destroy({
+      where: {
+        helicopter_booking_id: {
+          [Op.in]: models.sequelize.literal(
+            `(SELECT id FROM helicopter_bookings WHERE bookingStatus IN ('EXPIRED', 'CANCELLED'))`
+          ),
+        },
+      },
+    });
+
+    if (orphanedFlightSeats > 0 || orphanedHelicopterSeats > 0) {
+      console.log(
+        `[Cleanup] One-time orphan cleanup: removed ${orphanedFlightSeats} flight seats + ${orphanedHelicopterSeats} helicopter seats`
+      );
+    }
+  } catch (error) {
+    console.error('[Cleanup] Error in cleanupOrphanedSeats:', error.message);
   }
 }
 
@@ -160,24 +198,25 @@ async function cleanupExpiredBookings() {
 }
 
 /**
- * Start the cleanup cron job
- * Runs every 5 minutes
+ * Start the cleanup cron job — runs every 5 minutes
  */
 function startCleanupJob() {
-  // Run every 5 minutes: */5 * * * *
   cron.schedule('*/5 * * * *', async () => {
     await cleanupExpiredBookings();
   });
 
   console.log('[Cleanup] Cron job started - runs every 5 minutes');
 
-  // Run immediately on startup
-  setTimeout(() => {
-    cleanupExpiredBookings();
-  }, 5000); // Wait 5 seconds after server start
+  // On startup: first run the one-time orphan cleanup for existing bad data,
+  // then run the regular expiry cleanup
+  setTimeout(async () => {
+    await cleanupOrphanedSeats();
+    await cleanupExpiredBookings();
+  }, 5000);
 }
 
 module.exports = {
   startCleanupJob,
   cleanupExpiredBookings,
+  cleanupOrphanedSeats,
 };
