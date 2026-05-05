@@ -1,13 +1,11 @@
-const SEG_CACHE = new WeakMap();
+const SEG_CACHE = new WeakMap(); // kept for backward compatibility if imported elsewhere
 
 /**
- * Get the complete route for a helicopter including all stops
- * @param {Object} helicopter - Helicopter model instance
- * @returns {Array} Array of helipad IDs representing the route
+ * @deprecated Route-based segment logic is not used for helicopters.
+ * Helicopters are point-to-point — use getAvailableHelicopterSeats directly.
  */
 function getHelicopterRoute(helicopter) {
   if (SEG_CACHE.has(helicopter)) return SEG_CACHE.get(helicopter);
-  
   let stops = [];
   try {
     stops = Array.isArray(helicopter.helipad_stop_ids)
@@ -16,10 +14,7 @@ function getHelicopterRoute(helicopter) {
   } catch (e) {
     stops = [];
   }
-  
-  // Filter out invalid stops
   stops = stops.filter(id => id && Number.isInteger(id) && id !== 0);
-  
   const route = [helicopter.start_helipad_id, ...stops, helicopter.end_helipad_id];
   SEG_CACHE.set(helicopter, route);
   return route;
@@ -39,158 +34,140 @@ function generateHelicopterSeatLabels(seatLimit) {
 }
 
 /**
- * Get available helicopter seats for a specific schedule and date
- * Handles multi-leg routes by checking ALL overlapping segments
- * @param {Object} params - Parameters object
- * @param {Object} params.models - Sequelize models
- * @param {number} params.schedule_id - Helicopter schedule ID
- * @param {string} params.bookDate - Booking date (YYYY-MM-DD)
- * @param {string} params.userId - Optional user ID for seat holds
- * @param {Object} params.transaction - Optional database transaction
- * @returns {Promise<Array>} Array of available seat labels
+ * Get available helicopter seats for a specific schedule and date.
+ *
+ * NOTE: The old implementation tried to reuse the flight segment-overlap logic,
+ * but it broke because:
+ *   - Helicopter.start_helipad_id / end_helipad_id reference the `airports` table
+ *   - HelicopterSchedule.departure_helipad_id / arrival_helipad_id reference `helipads`
+ *   - These are different tables with different ID spaces, so route.indexOf() always
+ *     returned -1, causing the function to return [] (no seats available) for every query.
+ *
+ * Helicopters are point-to-point (no shared fuselage across overlapping segments),
+ * so a simple direct count against the exact schedule_id is correct and sufficient.
+ *
+ * @param {Object} params
+ * @param {Object} params.models        - Sequelize models
+ * @param {number} params.schedule_id   - HelicopterSchedule ID
+ * @param {string} params.bookDate      - Booking date (YYYY-MM-DD)
+ * @param {string} params.userId        - Optional: exclude this user's own holds
+ * @param {Object} params.transaction   - Optional Sequelize transaction
+ * @returns {Promise<string[]>} Array of available seat labels e.g. ['S1','S3']
  */
 async function getAvailableHelicopterSeats({ models, schedule_id, bookDate, userId = null, transaction = null }) {
+  // 1. Load schedule + helicopter (for seat_limit)
   const schedule = await models.HelicopterSchedule.findByPk(schedule_id, {
     include: [{ model: models.Helicopter, as: 'Helicopter' }],
     transaction,
   });
-  
+
   if (!schedule) {
     console.log(`[Helicopter Seats] Schedule ${schedule_id} not found`);
     return [];
   }
-  
+
   if (!schedule.Helicopter) {
     console.log(`[Helicopter Seats] Helicopter not found for schedule ${schedule_id}`);
     return [];
   }
-  
-  const helicopter = schedule.Helicopter;
-  const seatLimit = helicopter.seat_limit || 6;
-  
-  // Generate all possible seat labels
+
+  const seatLimit = schedule.Helicopter.seat_limit || 6;
   const allSeats = generateHelicopterSeatLabels(seatLimit);
-  
-  // Get the helicopter route
-  const route = getHelicopterRoute(helicopter);
-  const depIdx = route.indexOf(schedule.departure_helipad_id);
-  const arrIdx = route.lastIndexOf(schedule.arrival_helipad_id);
-  
-  console.log(`[Helicopter Seats] Route:`, route);
-  console.log(`[Helicopter Seats] Departure helipad ${schedule.departure_helipad_id} at index ${depIdx}`);
-  console.log(`[Helicopter Seats] Arrival helipad ${schedule.arrival_helipad_id} at index ${arrIdx}`);
-  
-  if (depIdx < 0 || arrIdx < 0 || depIdx >= arrIdx) {
-    console.log(`[Helicopter Seats] Invalid route indices - returning empty seats`);
-    return [];
-  }
-  
-  // Get ALL schedules for this helicopter
-  const allSchedules = await models.HelicopterSchedule.findAll({
-    where: { helicopter_id: helicopter.id },
-    attributes: ['id', 'departure_helipad_id', 'arrival_helipad_id'],
-    transaction,
-  });
-  
-  // Find schedules that overlap with the requested schedule
-  const relevantScheduleIds = allSchedules
-    .filter((s) => {
-      const sDepIdx = route.indexOf(s.departure_helipad_id);
-      const sArrIdx = route.lastIndexOf(s.arrival_helipad_id);
-      return (
-        sDepIdx !== -1 &&
-        sArrIdx !== -1 &&
-        sDepIdx < sArrIdx &&
-        // Check if segments overlap: !(segment ends before ours starts OR segment starts after ours ends)
-        !(sArrIdx < depIdx || sDepIdx > arrIdx)
-      );
-    })
-    .map((s) => s.id);
-  
-  // Only seats from CONFIRMED bookings block availability — cancelled bookings must never count
-  const bookedSeatsRows = await models.HelicopterBookedSeat.findAll({
+  const now = new Date();
+
+  // 2. Seats blocked by CONFIRMED bookings on this exact schedule + date
+  //    Join to helicopter_bookings to exclude CANCELLED / EXPIRED bookings.
+  const confirmedRows = await models.HelicopterBookedSeat.findAll({
     where: {
-      helicopter_schedule_id: relevantScheduleIds,
+      helicopter_schedule_id: schedule_id,
       bookDate,
-      status: 'CONFIRMED',
     },
     include: [{
       model: models.HelicopterBooking,
       attributes: [],
-      where: { bookingStatus: 'CONFIRMED' },
+      // Only count seats whose booking is still active
+      where: {
+        bookingStatus: { [models.Sequelize.Op.in]: ['CONFIRMED', 'SUCCESS', 'PENDING'] },
+      },
       required: true,
     }],
     attributes: ['seat_label'],
     transaction,
   });
 
-  // Also include HOLD seats from active (non-expired) pending bookings
-  const now = new Date();
-  const holdSeatsRows = await models.HelicopterBookedSeat.findAll({
+  // 3. Among PENDING bookings above, exclude those that have already expired
+  //    (booking_expires_at passed, or created > 20 min ago with no expiry field)
+  //    Re-query to get only the truly active pending ones.
+  const pendingRows = await models.HelicopterBookedSeat.findAll({
     where: {
-      helicopter_schedule_id: relevantScheduleIds,
+      helicopter_schedule_id: schedule_id,
       bookDate,
-      status: 'HOLD',
     },
+    include: [{
+      model: models.HelicopterBooking,
+      attributes: ['id', 'bookingStatus', 'created_at'],
+      where: { bookingStatus: 'PENDING' },
+      required: true,
+    }],
     attributes: ['seat_label', 'helicopter_booking_id'],
     transaction,
   }).catch(() => []);
 
-  // Filter to only holds whose booking hasn't expired yet
-  let activeHoldLabels = [];
-  if (holdSeatsRows.length > 0) {
-    const holdBookingIds = [...new Set(holdSeatsRows.map(r => r.helicopter_booking_id))];
-    const activeBookings = await models.HelicopterBooking.findAll({
-      where: {
-        id: holdBookingIds,
-        bookingStatus: 'PENDING',
-        booking_expires_at: { [models.Sequelize.Op.gt]: now },
-      },
-      attributes: ['id'],
-      transaction,
-    }).catch(() => []);
-    const activeIds = new Set(activeBookings.map(b => b.id));
-    activeHoldLabels = holdSeatsRows
-      .filter(r => activeIds.has(r.helicopter_booking_id))
-      .map(r => r.seat_label);
-  }
-  
-  // Check held seats across ALL overlapping schedules
-  let heldSeatsRows = [];
+  // Filter pending seats: only keep those whose booking hasn't expired yet
+  const expiredPendingIds = new Set(
+    pendingRows
+      .filter(row => {
+        const booking = row.HelicopterBooking;
+        if (!booking) return true; // treat as expired if no booking found
+        const createdAt = new Date(booking.created_at);
+        const ageMs = now - createdAt;
+        // Expired if older than 20 minutes
+        return ageMs > 20 * 60 * 1000;
+      })
+      .map(row => row.helicopter_booking_id)
+  );
+
+  // 4. Seats held via HelicopterSeatHold table (temporary holds during checkout)
+  let heldSeats = new Set();
   try {
+    const holdWhere = {
+      schedule_id,
+      bookDate,
+      expires_at: { [models.Sequelize.Op.gt]: now },
+    };
     if (userId) {
-      heldSeatsRows = await models.HelicopterSeatHold.findAll({
-        where: {
-          schedule_id: relevantScheduleIds,
-          bookDate,
-          expires_at: { [models.Sequelize.Op.gt]: now },
-          held_by: { [models.Sequelize.Op.ne]: userId },
-        },
-        attributes: ['seat_label'],
-        transaction,
-      });
-    } else {
-      heldSeatsRows = await models.HelicopterSeatHold.findAll({
-        where: {
-          schedule_id: relevantScheduleIds,
-          bookDate,
-          expires_at: { [models.Sequelize.Op.gt]: now },
-        },
-        attributes: ['seat_label'],
-        transaction,
-      });
+      holdWhere.held_by = { [models.Sequelize.Op.ne]: userId };
     }
-  } catch (error) {
-    // HelicopterSeatHold table might not exist, ignore
-    console.warn('HelicopterSeatHold table not found or error:', error.message);
+    const holdRows = await models.HelicopterSeatHold.findAll({
+      where: holdWhere,
+      attributes: ['seat_label'],
+      transaction,
+    });
+    heldSeats = new Set(holdRows.map(r => r.seat_label));
+  } catch {
+    // HelicopterSeatHold table may not exist — safe to ignore
   }
-  
-  const bookedSeats = new Set(bookedSeatsRows.map((row) => row.seat_label));
-  const activeHolds = new Set(activeHoldLabels);
-  const heldByOthers = new Set(heldSeatsRows.map((row) => row.seat_label));
-  const unavailableSeats = new Set([...bookedSeats, ...activeHolds, ...heldByOthers]);
-  
-  const availableSeats = allSeats.filter((seat) => !unavailableSeats.has(seat));
+
+  // 5. Build the unavailable set
+  const unavailable = new Set();
+
+  for (const row of confirmedRows) {
+    // Skip seats from expired pending bookings
+    if (expiredPendingIds.has(row.helicopter_booking_id)) continue;
+    unavailable.add(row.seat_label);
+  }
+
+  for (const seat of heldSeats) {
+    unavailable.add(seat);
+  }
+
+  const availableSeats = allSeats.filter(seat => !unavailable.has(seat));
+
+  console.log(
+    `[Helicopter Seats] schedule=${schedule_id} date=${bookDate} ` +
+    `total=${seatLimit} booked=${unavailable.size} available=${availableSeats.length} [${availableSeats.join(',')}]`
+  );
+
   return availableSeats;
 }
 
