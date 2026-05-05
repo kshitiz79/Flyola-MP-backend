@@ -48,11 +48,13 @@ async function cleanupExpiredFlightBookings() {
             { transaction: t }
           );
 
-          // Release seats (delete HOLD seats)
+          // Release all seats for this booking regardless of status.
+          // Seats are created with status='CONFIRMED' by default (not 'HOLD'),
+          // so filtering by status:'HOLD' would delete 0 rows and leave orphaned
+          // seat records blocking availability for other users.
           const deletedSeats = await models.BookedSeat.destroy({
             where: {
               booking_id: booking.id,
-              status: 'HOLD',
             },
             transaction: t,
           });
@@ -113,11 +115,13 @@ async function cleanupExpiredHelicopterBookings() {
             { transaction: t }
           );
 
-          // Release seats (delete HOLD seats)
+          // Release all seats for this booking regardless of status.
+          // Seats are created with status='CONFIRMED' by default (not 'HOLD'),
+          // so filtering by status:'HOLD' would delete 0 rows and leave orphaned
+          // seat records blocking availability for other users.
           const deletedSeats = await models.HelicopterBookedSeat.destroy({
             where: {
               helicopter_booking_id: booking.id,
-              status: 'HOLD',
             },
             transaction: t,
           });
